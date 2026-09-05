@@ -179,3 +179,15 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+
+.claude/
+docs/
+
+# Job scraper runtime state (secrets, cache, per-run and raw HTML artifacts)
+.env
+data/jobs.sqlite3
+data/jobs.sqlite3-shm
+data/jobs.sqlite3-wal
+data/runs/
+data/details/
+data/logs/
