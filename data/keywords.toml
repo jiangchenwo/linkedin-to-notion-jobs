@@ -1,0 +1,17 @@
+keywords = [
+  "AI engineer",
+  "LLM engineer",
+  "new grad AI engineer",
+  "generative AI engineer",
+  "machine learning engineer AI",
+  "junior AI engineer",
+]
+
+[search]
+location = "United States"
+f_JT = "F"          # full-time
+f_E = "2,3,4"       # entry, associate, mid-senior; effect measured in step 9
+sortBy = "DD"       # newest first
+max_pages = 20      # per keyword
+f_TPR_past_24h = "r86400"
+f_TPR_past_week = "r604800"
