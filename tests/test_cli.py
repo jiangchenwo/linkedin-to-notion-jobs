@@ -94,6 +94,46 @@ def test_fetch_success_end_to_end(data_dir, monkeypatch, capsys):
     assert stages == {"card"}
 
 
+def test_fetch_skips_known_detail(data_dir, monkeypatch, capsys):
+    install_client(monkeypatch)
+
+    # Pre-seed a prior successful run: a sighting for one group's lowest id at
+    # the same date the card carries, plus its raw detail file already on disk.
+    from jobs.models import Card
+
+    prior_card = Card(
+        job_id="4000000001",
+        title="AI Engineer 1",
+        company="Acme Corp 1",
+        location="New York, NY",
+        date_posted="2026-09-05",
+        url="https://www.linkedin.com/jobs/view/4000000001/",
+        keyword="AI engineer",
+    )
+    conn = cache.connect(str(data_dir / "jobs.sqlite3"))
+    cache.start_run(conn, "2026-09-04T000000", "past_24h")
+    cache.record_sighting(conn, prior_card, "2026-09-04T000000")
+    cache.finish_run(conn, "2026-09-04T000000", "success", {})
+    conn.close()
+
+    details = data_dir / "details"
+    details.mkdir(parents=True, exist_ok=True)
+    marker = "<!-- prior fetch -->"
+    (details / "4000000001.html").write_text(marker)
+
+    rc = cli.main(["fetch", "--date-window", "past_24h"])
+    assert rc == 0
+
+    summary = _last_json(capsys)
+    assert summary["details_skipped"] >= 1
+    # the known group's raw detail is reused, not refetched
+    assert (details / "4000000001.html").read_text() == marker
+
+    groups = json.loads((data_dir / "runs" / summary["run_id"] / "cards.json").read_text())
+    known = next(g for g in groups if g["detail_job_id"] == "4000000001")
+    assert known["detail_path"].endswith("4000000001.html")
+
+
 def test_fetch_partial_when_detail_blocked(data_dir, monkeypatch, capsys):
     install_client(monkeypatch, detail_status=429, block_limit=1)
     rc = cli.main(["fetch", "--date-window", "past_24h"])
