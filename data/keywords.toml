@@ -1,10 +1,13 @@
+# Order is priority order: sortBy=DD + the shared seen-set give the first
+# keywords full page depth before the set fills, so early-career targets lead
+# and the broad catch-all trails.
 keywords = [
-  "AI engineer",
-  "LLM engineer",
   "new grad AI engineer",
-  "generative AI engineer",
-  "machine learning engineer AI",
+  "entry level AI engineer",
   "junior AI engineer",
+  "LLM engineer",
+  "machine learning engineer AI",
+  "AI engineer",
 ]
 
 [search]
