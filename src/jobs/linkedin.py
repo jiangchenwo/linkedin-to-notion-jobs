@@ -4,7 +4,9 @@ No login, no browser. The guest search and jobPosting endpoints return HTML
 fragments. Pagination step is derived at runtime from the first page's card
 count; measured live 2026-09-05 as 10 (start=0, 10, 25 returned disjoint
 10-card pages). f_E=2,3,4 did not change the result set, so it is kept as a
-harmless hint."""
+harmless hint. In past_24h nothing falls out of the date window, so pagination
+is bounded by max_pages and by a shared seen-set that stops a keyword once a
+page adds no new id (the six keywords overlap heavily)."""
 
 import logging
 import random
@@ -197,15 +199,23 @@ class GuestClient:
         return parse_cards(resp.text, keyword)
 
     def search_all(
-        self, keyword: str, date_window: str, run_date, max_pages: int
+        self,
+        keyword: str,
+        date_window: str,
+        run_date,
+        max_pages: int,
+        seen: set[str] | None = None,
     ) -> list[Card]:
-        """Page through a keyword's results, deduping by job_id. Stops on an
-        empty page, on a page where every card is outside the date window
+        """Page through a keyword's results, returning only cards whose job_id
+        is not already in `seen` (pass one shared set across keywords to skip
+        the heavy overlap between them). Stops on an empty page, on a page that
+        adds no new id, on a page where every card is outside the date window
         (results are newest first), or after max_pages."""
         from .filters import date_window as date_window_rule
 
         results: list[Card] = []
-        seen: set[str] = set()
+        if seen is None:
+            seen = set()
         step: int | None = None
         start = 0
         for _ in range(max_pages):
@@ -214,10 +224,14 @@ class GuestClient:
                 break
             if step is None:
                 step = len(cards)
+            new_on_page = 0
             for card in cards:
                 if card.job_id not in seen:
                     seen.add(card.job_id)
                     results.append(card)
+                    new_on_page += 1
+            if new_on_page == 0:
+                break
             if all(date_window_rule(c, run_date) for c in cards):
                 break
             start += step

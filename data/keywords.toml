@@ -12,6 +12,6 @@ location = "United States"
 f_JT = "F"          # full-time
 f_E = "2,3,4"       # entry, associate, mid-senior; effect measured in step 9
 sortBy = "DD"       # newest first
-max_pages = 20      # per keyword
+max_pages = 10      # per keyword; a shared seen-set also stops a keyword once a page adds no new id
 f_TPR_past_24h = "r86400"
 f_TPR_past_week = "r604800"

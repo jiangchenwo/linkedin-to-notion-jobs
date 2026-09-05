@@ -6,9 +6,11 @@ import httpx
 import pytest
 
 from jobs import cache, cli
-from jobs.linkedin import GuestClient
+from jobs.linkedin import GuestClient, load_keywords
 
 from conftest import REPO_DATA, read_fixture
+
+_, SEARCH_CFG = load_keywords(str(REPO_DATA / "keywords.toml"))
 
 
 def make_transport(detail_status=200):
@@ -58,6 +60,23 @@ def data_dir(tmp_path, monkeypatch):
 
 def _last_json(capsys):
     return json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+
+
+def test_search_all_stops_when_page_adds_no_new_ids():
+    client = GuestClient(
+        client=httpx.Client(transport=make_transport()),
+        pause=(0, 0),
+        search_config=SEARCH_CFG,
+    )
+    seen: set[str] = set()
+    first = client.search_all("AI engineer", "past_24h", date(2026, 9, 5), 10, seen=seen)
+    assert len(first) == 10
+    after_first = client._requests
+
+    # A second keyword serving the same page adds no new id -> one request, stop.
+    second = client.search_all("LLM engineer", "past_24h", date(2026, 9, 5), 10, seen=seen)
+    assert second == []
+    assert client._requests - after_first == 1
 
 
 def test_fetch_success_end_to_end(data_dir, monkeypatch, capsys):

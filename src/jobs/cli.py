@@ -158,9 +158,12 @@ def cmd_fetch(args) -> int:
         blocked = False
         errors: list[str] = []
         merged: dict[str, object] = {}
+        seen_ids: set[str] = set()
         try:
             for keyword in keywords:
-                for card in client.search_all(keyword, date_window, run_date, max_pages):
+                for card in client.search_all(
+                    keyword, date_window, run_date, max_pages, seen=seen_ids
+                ):
                     merged.setdefault(card.job_id, card)
         except (Blocked, BudgetExhausted) as e:
             blocked = True
