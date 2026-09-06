@@ -1,8 +1,9 @@
 # Edit this file to retarget the scraper at a different job title or field.
-# Everything here is the search profile: the keywords LinkedIn is queried with,
-# the search filters, and the title/relevance/area lists the pipeline classifies
-# with. Changing the title (e.g. from AI engineer to data engineer) is a change
-# to this file, not to the Python. companies.toml holds the employer lists.
+# It is the whole search profile: what to ask LinkedIn for (keywords, [search]),
+# what to throw away ([filters]), and how to label what is left ([relevance],
+# [skills], [areas], [priority]). Changing the title (say, AI engineer to data
+# engineer) is a change to this file, not to the Python. companies.toml holds
+# the employer lists. Run `uv run jobs profile` after an edit to check it.
 
 # Order is priority order: sortBy=DD + the shared seen-set give the first
 # keywords full page depth before the set fills, so early-career targets lead
@@ -19,31 +20,52 @@ keywords = [
 ]
 
 [search]
-location = "United States"
-f_JT = "F"          # full-time
-f_E = "2,3,4"       # entry, associate, mid-senior; effect measured in step 9
-sortBy = "DD"       # newest first
-max_pages = 10      # per keyword; a shared seen-set also stops a keyword once a page adds no new id
-f_TPR_past_24h = "r86400"
+# Passed straight to LinkedIn's guest search. Every f_* key here is forwarded as
+# a query parameter (max_pages is the exception: a pipeline knob, not a query
+# param). The README has the full code table.
+location = "United States"   # free text, as typed into LinkedIn's location box
+f_JT = "F"                   # job type: F full-time, P part-time, C contract, T temp, I internship, O other
+f_E = "2,3,4"                # experience: 1 intern, 2 entry, 3 associate, 4 mid-senior, 5 director, 6 exec
+sortBy = "DD"                # DD newest first, R relevance; keep DD, the seen-set assumes it
+max_pages = 10               # pages of 10 per keyword; a shared seen-set also stops a keyword early
+f_TPR_past_24h = "r86400"    # the pipeline picks one f_TPR per run
 f_TPR_past_week = "r604800"
 
-[seniority]
-# Titles carrying any exclude term are dropped at the card stage. Titles carrying
-# a new-grad term widen the freshness window from 2 to 14 days.
+[filters]
+# Card stage, before any detail HTML is fetched.
 exclude_title_terms = [
   "senior", "sr", "staff", "principal", "lead", "manager", "director",
   "distinguished", "head", "vp", "architect",
 ]
-new_grad_title_terms = [
+max_age_days = 2
+# Titles carrying a long-window term get a wider freshness window (for runs less
+# often than daily, or slow-to-post new-grad reqs). [] turns the long window off.
+long_window_title_terms = [
   "new grad", "new graduate", "early career", "entry-level", "entry level",
   "university grad", "graduate engineer",
 ]
+long_window_max_age_days = 14
+
+# Detail stage, after the posting body is fetched.
+employment_types = ["Full-time"]   # LinkedIn's label; [] accepts every type. Must agree with f_JT.
+exclude_description_terms = ["contract", "temporary", "temp to perm", "contract to full"]
+max_min_years = 6                  # reject when the posting's minimum years exceed this; omit to disable
+
+[priority]
+# The Notion `Priority Score`, one per Seniority label; 1 is best. All seven
+# labels are required. Invert this for a senior search (Senior = 1).
+"New Grad" = 1
+"Internship" = 2
+"Junior" = 2
+"Entry Level" = 2
+"Associate" = 3
+"Unknown" = 3
+"Senior" = 6
 
 [relevance]
-# A posting must clear the AI/ML relevance bar: two core skills, or one core
-# skill plus a `terms` hit in both the title and the body. `terms` are matched
-# case-insensitively with word boundaries; `core_skills` are names from
-# SKILL_PATTERNS in extract.py.
+# A posting must clear the relevance bar: two core skills, or one core skill
+# plus a `terms` hit in both the title and the body. `terms` are matched
+# case-insensitively with word boundaries; `core_skills` are keys of [skills].
 terms = [
   "ai", "artificial intelligence", "machine learning", "ml", "genai",
   "generative ai", "llm", "rag", "retrieval", "embedding", "vector",
@@ -55,6 +77,44 @@ core_skills = [
   "TensorFlow", "NLP", "Computer vision/OCR", "Agents/workflows",
   "Evals/testing",
 ]
+
+[skills]
+# The skill vocabulary. Each entry names a skill and a raw regex (matched
+# case-insensitively). It fills the Notion `Parsed Skills` field (first 12 hits,
+# so order matters), backs `core_skills` above, and marks requirement lines.
+"Python" = '\bpython\b'
+"SQL" = '\bsql\b|postgres|mysql|database'
+"JavaScript/TypeScript" = '\btypescript\b|\bjavascript\b|\bnode\.?js\b|\breact\b'
+"Java/JVM" = '\bjava\b|\bspring\b'
+"Go" = '\bgolang\b|\bgo\b'
+"C++" = '\bc\+\+\b'
+"REST/API/backend" = '\bapi\b|\brest\b|\bbackend\b|microservice'
+"Cloud, any provider" = '\baws\b|\bazure\b|\bgcp\b|google cloud|cloud-native|cloud infrastructure'
+"AWS" = '\baws\b|bedrock|sagemaker|lambda|amazon s3|\bs3\b|ecs\b|eks\b'
+"Azure" = '\bazure\b|azure ai|azure openai'
+"GCP" = '\bgcp\b|google cloud|vertex ai'
+"Docker/containers" = '\bdocker\b|container'
+"Kubernetes" = '\bkubernetes\b|\bk8s\b|\beks\b|\baks\b|\bgke\b'
+"CI/CD" = '\bci/cd\b|github actions|jenkins|deployment pipeline'
+"Terraform/IaC" = '\bterraform\b|infrastructure as code|\biac\b|cloudformation|cdk\b'
+"Data pipelines" = 'data pipeline|etl\b|elt\b|airflow|spark|databricks|snowflake|warehouse'
+"Kafka/streaming" = '\bkafka\b|streaming|kinesis|eventbridge'
+"LLM/GenAI" = '\bllm\b|large language model|generative ai|genai|foundation model'
+"RAG/retrieval" = '\brag\b|retrieval|knowledge base|semantic search'
+"Embeddings/vector DB" = 'embedding|vector database|vector db|pinecone|weaviate|milvus|faiss|chromadb'
+"Agents/workflows" = '\bagent\b|agentic|multi-agent|workflow orchestration'
+"Prompt engineering" = 'prompt engineering|prompt design|prompt'
+"Evals/testing" = '\beval\b|evaluation|benchmark|test harness|quality measurement'
+"OpenAI/Anthropic" = '\bopenai\b|anthropic|claude'
+"LangChain/LangGraph" = 'langchain|langgraph|llamaindex'
+"PyTorch" = 'pytorch'
+"TensorFlow" = 'tensorflow'
+"scikit-learn" = 'scikit|sklearn|scikit-learn'
+"NLP" = '\bnlp\b|natural language'
+"Computer vision/OCR" = 'computer vision|ocr\b|image|vision model'
+"Model serving/MLOps" = 'mlops|model serving|model deployment|inference|feature store|monitoring'
+"Observability/reliability" = 'observability|monitoring|logging|alerting|reliability|incident'
+"Security/responsible AI" = 'cybersecurity|data security|privacy|responsible ai|ai safety|abuse|red team|governance|secure ai'
 
 [areas]
 # The Notion `Job Area` multi-select. `default` is the fallback when nothing

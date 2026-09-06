@@ -6,7 +6,7 @@ count; measured live 2026-09-05 as 10 (start=0, 10, 25 returned disjoint
 10-card pages). f_E=2,3,4 did not change the result set, so it is kept as a
 harmless hint. In past_24h nothing falls out of the date window, so pagination
 is bounded by max_pages and by a shared seen-set that stops a keyword once a
-page adds no new id (the six keywords overlap heavily)."""
+page adds no new id (the keywords overlap heavily)."""
 
 import logging
 import random
@@ -185,16 +185,21 @@ class GuestClient:
         raise Blocked("blocked after 3 attempts")
 
     def _search_params(self, keyword: str, date_window: str, start: int) -> dict:
+        """The guest-search query. Every f_* key in [search] is forwarded (so
+        f_JT, f_E, and any added f_WT etc. reach LinkedIn) except the two
+        f_TPR_* window tokens, one of which becomes f_TPR for this run."""
         cfg = self.search_config
-        return {
+        params = {
             "keywords": keyword,
             "location": cfg["location"],
             "f_TPR": cfg[f"f_TPR_{date_window}"],
-            "f_JT": cfg["f_JT"],
-            "f_E": cfg["f_E"],
             "sortBy": cfg["sortBy"],
             "start": start,
         }
+        params.update(
+            {k: v for k, v in cfg.items() if k.startswith("f_") and not k.startswith("f_TPR")}
+        )
+        return params
 
     def search(self, keyword: str, date_window: str, start: int) -> list[Card]:
         resp = self._get(SEARCH_URL, self._search_params(keyword, date_window, start))

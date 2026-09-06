@@ -1,5 +1,6 @@
 import pytest
 
+from jobs import extract, profile
 from jobs.extract import (
     AREAS,
     SOURCE_TYPE_LABELS,
@@ -99,19 +100,19 @@ def test_seniority(title, level, lower, expected):
 
 
 @pytest.mark.parametrize(
-    "sen,lower,score",
+    "sen,score",
     [
-        ("New Grad", None, 1),
-        ("Junior", None, 2),
-        ("Entry Level", 4, 2),
-        ("Associate", 4, 3),
-        ("Senior", 6, 4),
-        ("Senior", 8, 6),
-        ("Unknown", None, 3),
+        ("New Grad", 1),
+        ("Internship", 2),
+        ("Junior", 2),
+        ("Entry Level", 2),
+        ("Associate", 3),
+        ("Unknown", 3),
+        ("Senior", 6),
     ],
 )
-def test_priority(sen, lower, score):
-    assert priority(sen, lower) == score
+def test_priority(sen, score):
+    assert priority(sen) == score
 
 
 def test_work_mode_remote():
@@ -130,6 +131,52 @@ def test_skills_lists_matches():
     s = skills(detail_from("detail_junior.html"))
     assert "Python" in s
     assert "PyTorch" in s
+
+
+_DBT_TOML = r"""
+keywords = ["data engineer"]
+
+[search]
+location = "United States"
+sortBy = "DD"
+f_TPR_past_24h = "r86400"
+f_TPR_past_week = "r604800"
+
+[filters]
+exclude_title_terms = ["senior"]
+
+[priority]
+"New Grad" = 1
+"Internship" = 2
+"Junior" = 2
+"Entry Level" = 2
+"Associate" = 3
+"Unknown" = 3
+"Senior" = 6
+
+[relevance]
+terms = ["etl"]
+core_skills = ["dbt"]
+
+[skills]
+"dbt" = '\bdbt\b'
+"Snowflake" = 'snowflake'
+
+[areas]
+default = "General Data"
+
+[[areas.map]]
+label = "Warehousing"
+pattern = 'warehouse'
+"""
+
+
+def test_skills_reads_a_custom_profile_skill(tmp_path, monkeypatch):
+    p = tmp_path / "keywords.toml"
+    p.write_text(_DBT_TOML)
+    monkeypatch.setattr(extract, "PROFILE", profile.load(str(p)))
+    d = Detail(job_id="1", description_text="We build models in dbt on Snowflake.")
+    assert skills(d) == "dbt, Snowflake"
 
 
 def test_source_type_binding_constraint():

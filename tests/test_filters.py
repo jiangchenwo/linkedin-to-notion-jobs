@@ -1,14 +1,15 @@
 from datetime import date
 
+from jobs import filters, profile
 from jobs.extract import canon
 from jobs.filters import (
     aggregator_company,
-    ai_relevance,
     card_stage,
     date_window,
     detail_stage,
     employment_type,
     min_years_cap,
+    relevance,
     source_quality,
     thin_posting,
     title_seniority,
@@ -78,13 +79,13 @@ def test_employment_type():
     assert employment_type(detail_from("detail_junior.html")) is None
 
 
-def test_ai_relevance():
+def test_relevance():
     assert (
-        ai_relevance(make_card(title="Backend Software Engineer"), detail_from("detail_not_ai.html"))
-        == "ai_relevance"
+        relevance(make_card(title="Backend Software Engineer"), detail_from("detail_not_ai.html"))
+        == "relevance"
     )
     assert (
-        ai_relevance(make_card(title="Machine Learning Engineer"), detail_from("detail_junior.html"))
+        relevance(make_card(title="Machine Learning Engineer"), detail_from("detail_junior.html"))
         is None
     )
 
@@ -104,6 +105,65 @@ def test_source_quality():
 def test_thin_posting():
     assert thin_posting(detail_from("detail_thin.html")) == "thin_posting"
     assert thin_posting(detail_from("detail_junior.html")) is None
+
+
+_BASE_TOML = r"""
+keywords = ["engineer"]
+
+[search]
+location = "United States"
+sortBy = "DD"
+f_TPR_past_24h = "r86400"
+f_TPR_past_week = "r604800"
+
+[filters]
+exclude_title_terms = ["senior"]
+{extra_filters}
+
+[priority]
+"New Grad" = 1
+"Internship" = 2
+"Junior" = 2
+"Entry Level" = 2
+"Associate" = 3
+"Unknown" = 3
+"Senior" = 6
+
+[relevance]
+terms = ["ai"]
+core_skills = ["Python"]
+
+[skills]
+"Python" = '\bpython\b'
+
+[areas]
+default = "General"
+
+[[areas.map]]
+label = "Backend"
+pattern = 'backend'
+"""
+
+
+def _profile_with(tmp_path, extra_filters):
+    p = tmp_path / "keywords.toml"
+    p.write_text(_BASE_TOML.format(extra_filters=extra_filters))
+    return profile.load(str(p))
+
+
+def test_employment_type_accepts_a_profiles_own_label(tmp_path, monkeypatch):
+    prof = _profile_with(tmp_path, 'employment_types = ["Internship"]')
+    monkeypatch.setattr(filters, "PROFILE", prof)
+    intern = Detail(job_id="1", employment_type="Internship", description_text="An internship.")
+    assert employment_type(intern) is None
+    full_time = Detail(job_id="1", employment_type="Full-time", description_text="A role.")
+    assert employment_type(full_time) == "employment_type"
+
+
+def test_min_years_cap_disabled_when_max_min_years_omitted(tmp_path, monkeypatch):
+    prof = _profile_with(tmp_path, "")  # no max_min_years
+    monkeypatch.setattr(filters, "PROFILE", prof)
+    assert min_years_cap(10) is None
 
 
 def test_detail_stage_returns_first_rejecting_rule():
