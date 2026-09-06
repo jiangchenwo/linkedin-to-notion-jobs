@@ -25,7 +25,7 @@ log = logging.getLogger(__name__)
 
 BASE_URL = "https://api.notion.com"
 NOTION_VERSION = "2025-09-03"
-KEYRING_SERVICE = "com.chenjiang.job-listings-scraper"
+KEYRING_SERVICE = "job-listings-scraper"
 
 # name -> Notion property "type". Extra properties in the live schema are
 # ignored; every row here must be present with this type or check_schema raises.
