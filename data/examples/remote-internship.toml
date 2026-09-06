@@ -1,0 +1,88 @@
+# Example profile: remote AI/software internship.
+# Differs from the default: f_JT and employment_types are Internship, f_WT is
+# remote-only, f_E is intern-level, and max_age_days widens to 7. Classification
+# stays the default AI vocabulary. Copy this over data/keywords.toml.
+
+keywords = [
+  "AI engineer intern",
+  "machine learning intern",
+  "software engineer intern",
+  "data science intern",
+  "LLM intern",
+]
+
+[search]
+location = "United States"
+f_JT = "I"                   # internship
+f_WT = "2"                   # remote only
+f_E = "1"                    # internship experience level
+sortBy = "DD"
+max_pages = 10
+f_TPR_past_24h = "r86400"
+f_TPR_past_week = "r604800"
+
+[filters]
+exclude_title_terms = [
+  "senior", "sr", "staff", "principal", "lead", "manager", "director",
+  "distinguished", "head", "vp",
+]
+max_age_days = 7             # internships post less frequently than full-time roles
+long_window_title_terms = ["new grad", "early career", "university", "graduate"]
+long_window_max_age_days = 21
+employment_types = ["Internship"]   # must agree with f_JT = "I"
+exclude_description_terms = []
+max_min_years = 2
+
+[priority]
+"New Grad" = 1
+"Internship" = 1
+"Junior" = 2
+"Entry Level" = 2
+"Associate" = 3
+"Unknown" = 3
+"Senior" = 6
+
+[relevance]
+terms = [
+  "ai", "artificial intelligence", "machine learning", "ml", "genai",
+  "generative ai", "llm", "rag", "retrieval", "embedding", "deep learning",
+  "nlp", "pytorch", "tensorflow", "computer vision",
+]
+core_skills = [
+  "Python", "LLM/GenAI", "PyTorch", "TensorFlow", "NLP",
+  "Computer vision/OCR", "RAG/retrieval",
+]
+
+[skills]
+"Python" = '\bpython\b'
+"SQL" = '\bsql\b|postgres|mysql|database'
+"JavaScript/TypeScript" = '\btypescript\b|\bjavascript\b|\breact\b'
+"LLM/GenAI" = '\bllm\b|large language model|generative ai|genai|foundation model'
+"RAG/retrieval" = '\brag\b|retrieval|knowledge base|semantic search'
+"Agents/workflows" = '\bagent\b|agentic|multi-agent|workflow orchestration'
+"PyTorch" = 'pytorch'
+"TensorFlow" = 'tensorflow'
+"scikit-learn" = 'scikit|sklearn'
+"NLP" = '\bnlp\b|natural language'
+"Computer vision/OCR" = 'computer vision|ocr\b|image|vision model'
+"Cloud, any provider" = '\baws\b|\bazure\b|\bgcp\b|google cloud'
+"Docker/containers" = '\bdocker\b|container'
+
+[areas]
+default = "General AI"
+
+[[areas.map]]
+label = "LLM / GenAI"
+pattern = '\bllms?\b|large language|gen(erative)? ?ai|\brag\b|prompt|fine-?tun'
+
+[[areas.map]]
+label = "Computer Vision"
+pattern = 'computer vision|\bcv\b|image|video|object detection|segmentation'
+
+[[areas.map]]
+label = "NLP / Speech"
+pattern = '\bnlp\b|natural language|speech|conversational'
+
+[[areas.map]]
+label = "Applied ML"
+pattern = 'machine learning|\bml\b|data scien|applied scien'

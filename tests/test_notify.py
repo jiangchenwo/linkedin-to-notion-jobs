@@ -14,7 +14,7 @@ def _summary():
         cards_seen=255,
         cards_rejected_by_rule={"title_seniority": 40, "date_window": 10},
         details_fetched=130,
-        details_rejected_by_rule={"ai_relevance": 29, "employment_type": 12},
+        details_rejected_by_rule={"relevance": 29, "employment_type": 12},
         jobs_new=80,
         refreshes=15,
         unresolved=3,
@@ -33,7 +33,7 @@ def test_format_summary_contains_run_id_status_and_counts():
     for count in ("255", "130", "80", "15", "3"):
         assert count in text
     assert "205" in text  # cards kept = 255 - 50 rejected
-    assert "title_seniority" in text and "ai_relevance" in text
+    assert "title_seniority" in text and "relevance" in text
     assert "something broke" in text
     assert "data/logs/jobs.log" in text
 

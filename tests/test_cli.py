@@ -491,3 +491,21 @@ def test_daily_overwrites_dead_pid_lock(data_dir, monkeypatch):
 
     rc = cli.main(["daily", "--dry-run", "--date-window", "past_24h"])
     assert rc == 0
+
+
+def test_profile_prints_summary_for_the_shipped_file(data_dir, capsys):
+    rc = cli.main(["profile"])
+    assert rc == 0
+    out = _last_json(capsys)
+    assert out["keywords"] > 0
+    assert out["search_params"]["f_JT"] == "F"
+    assert out["filters"]["max_age_days"] == 2
+    assert "Python" in out["skills"]
+
+
+def test_profile_reports_a_bad_file(tmp_path, capsys):
+    bad = tmp_path / "bad.toml"
+    bad.write_text('keywords = ["x"]\n[search]\nf_JT = "Z"\n')
+    rc = cli.main(["profile", "--path", str(bad)])
+    assert rc == 2
+    assert "f_JT" in _last_json(capsys)["error"]

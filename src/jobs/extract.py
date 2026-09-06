@@ -27,43 +27,6 @@ def sibling_key(company: str, title: str) -> str:
     return f"{canon(company)}::{canon(title)}"
 
 
-SKILL_PATTERNS = {
-    "Python": r"\bpython\b",
-    "SQL": r"\bsql\b|postgres|mysql|database",
-    "JavaScript/TypeScript": r"\btypescript\b|\bjavascript\b|\bnode\.?js\b|\breact\b",
-    "Java/JVM": r"\bjava\b|\bspring\b",
-    "Go": r"\bgolang\b|\bgo\b",
-    "C++": r"\bc\+\+\b",
-    "REST/API/backend": r"\bapi\b|\brest\b|\bbackend\b|microservice",
-    "Cloud, any provider": r"\baws\b|\bazure\b|\bgcp\b|google cloud|cloud-native|cloud infrastructure",
-    "AWS": r"\baws\b|bedrock|sagemaker|lambda|amazon s3|\bs3\b|ecs\b|eks\b",
-    "Azure": r"\bazure\b|azure ai|azure openai",
-    "GCP": r"\bgcp\b|google cloud|vertex ai",
-    "Docker/containers": r"\bdocker\b|container",
-    "Kubernetes": r"\bkubernetes\b|\bk8s\b|\beks\b|\baks\b|\bgke\b",
-    "CI/CD": r"\bci/cd\b|github actions|jenkins|deployment pipeline",
-    "Terraform/IaC": r"\bterraform\b|infrastructure as code|\biac\b|cloudformation|cdk\b",
-    "Data pipelines": r"data pipeline|etl\b|elt\b|airflow|spark|databricks|snowflake|warehouse",
-    "Kafka/streaming": r"\bkafka\b|streaming|kinesis|eventbridge",
-    "LLM/GenAI": r"\bllm\b|large language model|generative ai|genai|foundation model",
-    "RAG/retrieval": r"\brag\b|retrieval|knowledge base|semantic search",
-    "Embeddings/vector DB": r"embedding|vector database|vector db|pinecone|weaviate|milvus|faiss|chromadb",
-    "Agents/workflows": r"\bagent\b|agentic|multi-agent|workflow orchestration",
-    "Prompt engineering": r"prompt engineering|prompt design|prompt",
-    "Evals/testing": r"\beval\b|evaluation|benchmark|test harness|quality measurement",
-    "OpenAI/Anthropic": r"\bopenai\b|anthropic|claude",
-    "LangChain/LangGraph": r"langchain|langgraph|llamaindex",
-    "PyTorch": r"pytorch",
-    "TensorFlow": r"tensorflow",
-    "scikit-learn": r"scikit|sklearn|scikit-learn",
-    "NLP": r"\bnlp\b|natural language",
-    "Computer vision/OCR": r"computer vision|ocr\b|image|vision model",
-    "Model serving/MLOps": r"mlops|model serving|model deployment|inference|feature store|monitoring",
-    "Observability/reliability": r"observability|monitoring|logging|alerting|reliability|incident",
-    "Security/responsible AI": r"cybersecurity|data security|privacy|responsible ai|ai safety|abuse|red team|governance|secure ai",
-}
-
-
 # --- qualifications sections ---
 
 MINIMUM_HEADING_RE = re.compile(
@@ -390,16 +353,10 @@ def seniority(card: Card, detail: Detail, min_years_lower: int | None) -> str:
     return "Unknown"
 
 
-def priority(seniority_value: str, min_years_lower: int | None) -> int:
-    if seniority_value == "New Grad":
-        return 1
-    if seniority_value in ("Junior", "Entry Level", "Internship"):
-        return 2
-    if min_years_lower is None or min_years_lower <= 4:
-        return 3
-    if min_years_lower <= 6:
-        return 4
-    return 6
+def priority(seniority_value: str) -> int:
+    """The Notion `Priority Score` for a Seniority label, from the profile's
+    [priority] table (1 is best)."""
+    return PROFILE.priority.get(seniority_value, PROFILE.priority["Unknown"])
 
 
 # --- work mode, h1b, skills, requirement signal ---
@@ -450,11 +407,7 @@ def h1b(detail: Detail) -> str:
 
 
 def skills(detail: Detail) -> str:
-    hits = [
-        name
-        for name, pat in SKILL_PATTERNS.items()
-        if re.search(pat, detail.description_text, re.I)
-    ]
+    hits = [name for name, pat in PROFILE.skills if pat.search(detail.description_text)]
     return ", ".join(hits[:12])
 
 
@@ -463,11 +416,14 @@ _REQ_JUNK_RE = re.compile(
     r"use ai to assess|tailor my resume|create cover letter|company insights",
     re.I,
 )
-_REQ_KEEP_RE = re.compile(
-    r"python|llm|ai|machine learning|cloud|aws|azure|rag|api|data|model|"
-    r"production|kubernetes|docker|sql",
-    re.I,
-)
+
+
+def _is_requirement_line(clean: str) -> bool:
+    """A line reads as a requirement when it hits a relevance term or any skill
+    pattern from the profile."""
+    if PROFILE.relevance_re.search(clean):
+        return True
+    return any(pat.search(clean) for _, pat in PROFILE.skills)
 
 
 def requirement_signal(detail: Detail, skills_csv: str, limit: int = 3) -> str:
@@ -479,7 +435,7 @@ def requirement_signal(detail: Detail, skills_csv: str, limit: int = 3) -> str:
             continue
         if len(clean) < 35 or len(clean) > 180:
             continue
-        if _REQ_KEEP_RE.search(clean):
+        if _is_requirement_line(clean):
             snippets.append(clean)
         if len(snippets) >= limit:
             break
@@ -593,7 +549,7 @@ def build_job(group: dict, detail: Detail, companies: dict, run_date) -> Job:
         url=lowest.url,
         work_mode=work_mode(cards, detail),
         seniority=sen,
-        priority_score=priority(sen, lower),
+        priority_score=priority(sen),
         h1b_sponsorship=h1b(detail),
         source_type=source_type(lowest.company, detail.description_text, companies),
         areas=areas(lowest.title, detail.description_text),

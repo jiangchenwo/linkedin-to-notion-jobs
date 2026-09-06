@@ -1,0 +1,85 @@
+# Example profile: senior backend engineer.
+# Differs from the default: exclude_title_terms drops junior/intern titles;
+# long_window_title_terms is off and max_min_years omitted; f_E targets
+# mid-senior/director; [priority] is inverted (Senior = 1); relevance and areas
+# are backend vocabulary. Copy this over data/keywords.toml.
+
+keywords = [
+  "senior backend engineer",
+  "staff backend engineer",
+  "senior software engineer backend",
+  "principal backend engineer",
+  "backend engineer distributed systems",
+]
+
+[search]
+location = "United States"
+f_JT = "F"
+f_E = "4,5"
+sortBy = "DD"
+max_pages = 10
+f_TPR_past_24h = "r86400"
+f_TPR_past_week = "r604800"
+
+[filters]
+# Drop early-career titles instead of senior ones.
+exclude_title_terms = [
+  "intern", "internship", "junior", "jr", "new grad", "new graduate",
+  "entry level", "entry-level", "apprentice",
+]
+max_age_days = 2
+long_window_title_terms = []
+long_window_max_age_days = 14
+employment_types = ["Full-time"]
+exclude_description_terms = ["contract", "temporary", "temp to perm", "contract to full"]
+# max_min_years omitted: a senior search wants the high-years postings.
+
+[priority]
+# Inverted: senior roles rank first.
+"Senior" = 1
+"Associate" = 2
+"Unknown" = 3
+"Entry Level" = 5
+"Junior" = 5
+"Internship" = 6
+"New Grad" = 6
+
+[relevance]
+terms = [
+  "backend", "distributed systems", "microservice", "api", "scalability",
+  "latency", "throughput", "concurrency", "database", "kubernetes", "grpc",
+  "event-driven", "high availability", "sharding",
+]
+core_skills = ["REST/API/backend", "Distributed systems", "Kubernetes"]
+
+[skills]
+"Go" = '\bgolang\b|\bgo\b'
+"Java/JVM" = '\bjava\b|\bspring\b|\bkotlin\b'
+"Python" = '\bpython\b'
+"C++" = '\bc\+\+\b'
+"Rust" = '\brust\b'
+"REST/API/backend" = '\bapi\b|\brest\b|\bgrpc\b|\bbackend\b|microservice'
+"Distributed systems" = 'distributed|consensus|sharding|replication|partition|event-driven'
+"SQL" = '\bsql\b|postgres|mysql|database'
+"NoSQL" = 'cassandra|dynamodb|mongodb|redis|nosql'
+"Kafka/streaming" = '\bkafka\b|streaming|kinesis|eventbridge'
+"Cloud, any provider" = '\baws\b|\bazure\b|\bgcp\b|google cloud|cloud-native'
+"Docker/containers" = '\bdocker\b|container'
+"Kubernetes" = '\bkubernetes\b|\bk8s\b|\beks\b|\baks\b|\bgke\b'
+"Terraform/IaC" = '\bterraform\b|infrastructure as code|\biac\b'
+"Observability/reliability" = 'observability|monitoring|logging|reliability|incident|sre'
+
+[areas]
+default = "General Backend"
+
+[[areas.map]]
+label = "Distributed Systems"
+pattern = 'distributed|consensus|sharding|replication|partition|event-driven|high availability'
+
+[[areas.map]]
+label = "Platform"
+pattern = 'platform|infrastructure|kubernetes|\bk8s\b|service mesh|internal tooling'
+
+[[areas.map]]
+label = "API"
+pattern = '\bapi\b|\brest\b|\bgrpc\b|graphql|gateway|microservice'

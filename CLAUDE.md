@@ -20,8 +20,9 @@ step is a Python CLI; a local SQLite cache is the dedupe source of truth.
   live schema before any write; `EXPECTED_SCHEMA` in `notion.py` is the record
   of the expected shape.
 - To retarget the scraper at a different title or field, edit
-  `data/keywords.toml` (seniority, relevance, and area lists) and
-  `companies.toml`; never `EXPECTED_SCHEMA` or the Notion schema.
+  `data/keywords.toml` (the `[search]`, `[filters]`, `[relevance]`, `[skills]`,
+  and `[areas]` sections) and `companies.toml`; never `EXPECTED_SCHEMA` or the
+  Notion schema. `uv run jobs profile` checks the edit.
 - Python never calls an LLM. The only model call is the haiku subagent the skill
   spawns; the CLI stays deterministic and testable.
 - Fixtures under `tests/fixtures/` must be scrubbed: no real company names, job
