@@ -58,6 +58,20 @@ def _job_from_row(row: dict) -> Job:
     )
 
 
+def _fold_refresh(job: Job, refresh: Refresh) -> None:
+    """Merge a refresh's new cities, IDs, and newer date into a Job. Used when a
+    refresh must be created (its cache row has no page_id); posting_key is kept."""
+    have = {loc.lower() for loc in job.locations}
+    for loc in refresh.new_locations:
+        if loc.lower() not in have:
+            job.locations.append(loc)
+            have.add(loc.lower())
+    if refresh.new_job_ids:
+        job.job_ids = sorted(set(job.job_ids) | set(refresh.new_job_ids), key=int)
+    if refresh.date_posted > job.date_posted:
+        job.date_posted = refresh.date_posted
+
+
 def _confirmed(conn, run_id: str, posting_key: str) -> bool:
     op = cache.get_op(conn, run_id, posting_key)
     return op is not None and op["state"] == "confirmed"
@@ -111,6 +125,7 @@ def plan(run_id: str, conn, run_date: str, run_dir: Path, client=None,
             continue
         if not row.get("page_id"):
             job = _job_from_row(row)
+            _fold_refresh(job, refresh)  # cache row lags: fetch defers apply_refresh
             op = Op(key, "create", notion.build_create_properties(job, run_date),
                     title=job.title, company=job.company, job=job)
         else:

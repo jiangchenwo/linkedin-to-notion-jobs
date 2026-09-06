@@ -157,6 +157,22 @@ def test_rerun_replays_only_failed_op(tmp_path):
     conn.close()
 
 
+def test_refresh_without_page_id_plans_create_folding_in_refresh(tmp_path):
+    conn = conn_at(tmp_path)
+    # a cache row that was never created in Notion (no page_id)
+    seed_row(conn, page_id=None, date_posted="2026-09-01", locations=["Austin, TX"], job_ids=["100"])
+    run_dir = tmp_path / "runs" / "r1"
+    refresh = Refresh("linkedin:100", None, "2026-09-05", ["Remote"], ["105"]).to_dict()
+    write_run(run_dir, refreshes=[refresh])
+    ops = sync.plan("r1", conn, "2026-09-05", run_dir)
+    assert len(ops) == 1 and ops[0].op == "create"
+    props = ops[0].properties
+    assert props["Location"]["rich_text"][0]["text"]["content"] == "Austin, TX; Remote"
+    assert props["External ID"]["rich_text"][0]["text"]["content"] == "100,105"
+    assert props["Date Posted"]["date"]["start"] == "2026-09-05"
+    conn.close()
+
+
 def test_dry_run_journals_nothing(tmp_path, capsys):
     conn = conn_at(tmp_path)
     run_dir = tmp_path / "runs" / "r1"
