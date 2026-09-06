@@ -1,0 +1,55 @@
+{
+  "object": "list",
+  "results": [
+    {
+      "object": "page",
+      "id": "aaaaaaaa-0000-0000-0000-000000000001",
+      "properties": {
+        "Job Title": {"type": "title", "title": [{"plain_text": "Machine Learning Engineer"}]},
+        "Company": {"type": "rich_text", "rich_text": [{"plain_text": "Beta Labs"}]},
+        "Location": {"type": "rich_text", "rich_text": [{"plain_text": "Austin, TX; Remote"}]},
+        "External ID": {"type": "rich_text", "rich_text": [{"plain_text": "4000000001,4000000005"}]},
+        "Posting Key": {"type": "rich_text", "rich_text": [{"plain_text": "linkedin:4000000001"}]},
+        "Date Posted": {"type": "date", "date": {"start": "2026-09-05"}},
+        "First Seen": {"type": "date", "date": {"start": "2026-09-01"}},
+        "Last Seen": {"type": "date", "date": {"start": "2026-09-05"}},
+        "Applied": {"type": "checkbox", "checkbox": false},
+        "Neglected": {"type": "checkbox", "checkbox": false}
+      }
+    },
+    {
+      "object": "page",
+      "id": "aaaaaaaa-0000-0000-0000-000000000020",
+      "properties": {
+        "Job Title": {"type": "title", "title": [{"plain_text": "AI Engineer"}]},
+        "Company": {"type": "rich_text", "rich_text": [{"plain_text": "Nimbus Robotics"}]},
+        "Location": {"type": "rich_text", "rich_text": [{"plain_text": "New York, NY"}]},
+        "External ID": {"type": "rich_text", "rich_text": [{"plain_text": "4000000020"}]},
+        "Posting Key": {"type": "rich_text", "rich_text": [{"plain_text": "linkedin:4000000020"}]},
+        "Date Posted": {"type": "date", "date": {"start": "2026-09-04"}},
+        "First Seen": {"type": "date", "date": {"start": "2026-08-30"}},
+        "Last Seen": {"type": "date", "date": {"start": "2026-09-04"}},
+        "Applied": {"type": "checkbox", "checkbox": true},
+        "Neglected": {"type": "checkbox", "checkbox": false}
+      }
+    },
+    {
+      "object": "page",
+      "id": "aaaaaaaa-0000-0000-0000-000000000030",
+      "properties": {
+        "Job Title": {"type": "title", "title": [{"plain_text": "LLM Engineer"}]},
+        "Company": {"type": "rich_text", "rich_text": [{"plain_text": "Gamma AI"}]},
+        "Location": {"type": "rich_text", "rich_text": [{"plain_text": "Remote"}]},
+        "External ID": {"type": "rich_text", "rich_text": [{"plain_text": "4000000030"}]},
+        "Posting Key": {"type": "rich_text", "rich_text": [{"plain_text": "linkedin:4000000030"}]},
+        "Date Posted": {"type": "date", "date": {"start": "2026-09-03"}},
+        "First Seen": {"type": "date", "date": {"start": "2026-09-03"}},
+        "Last Seen": {"type": "date", "date": {"start": "2026-09-03"}},
+        "Applied": {"type": "checkbox", "checkbox": false},
+        "Neglected": {"type": "checkbox", "checkbox": true}
+      }
+    }
+  ],
+  "has_more": true,
+  "next_cursor": "cursor-page-2"
+}
