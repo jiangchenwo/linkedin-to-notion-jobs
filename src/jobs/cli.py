@@ -15,11 +15,21 @@ from contextlib import redirect_stdout
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-from . import cache, notify, sync
-from .extract import areas, build_job, canon, min_years, sibling_key
-from .filters import card_stage, detail_stage
-from .linkedin import Blocked, BudgetExhausted, GuestClient, load_keywords, parse_detail
+from . import profile
 from .models import Card, Refresh
+
+# filters.py and extract.py compile the profile at import, so a broken
+# data/keywords.toml raises ProfileError here, before main() runs. Hold it and
+# let main() report the JSON error contract instead of a bare traceback.
+try:
+    from . import cache, notify, sync
+    from .extract import areas, build_job, canon, min_years, sibling_key
+    from .filters import card_stage, detail_stage
+    from .linkedin import Blocked, BudgetExhausted, GuestClient, load_keywords, parse_detail
+
+    _PROFILE_ERROR: profile.ProfileError | None = None
+except profile.ProfileError as exc:
+    _PROFILE_ERROR = exc
 
 log = logging.getLogger("jobs")
 
@@ -918,8 +928,47 @@ def cmd_notify(args) -> int:
     return 0
 
 
+def cmd_profile(args) -> int:
+    """Load the profile and print the compiled summary: keyword count, the
+    search params as LinkedIn receives them, the filter thresholds, and the area
+    and skill labels. The 'did I break it' check a fork runs after an edit."""
+    from .linkedin import GuestClient
+
+    path = args.path or str(_data_dir() / "keywords.toml")
+    try:
+        prof = profile.load(path)
+    except (profile.ProfileError, OSError) as e:
+        print(json.dumps({"error": str(e)}))
+        return 2
+    try:
+        client = GuestClient(search_config=prof.search)
+        search_params = client._search_params("<keyword>", "past_24h", 0)
+        client.close()
+    except KeyError as e:
+        print(json.dumps({"error": f"[search] missing key {e}"}))
+        return 2
+    print(json.dumps({
+        "path": path,
+        "keywords": len(prof.keywords),
+        "search_params": search_params,
+        "filters": {
+            "max_age_days": prof.max_age_days,
+            "long_window_max_age_days": prof.long_window_max_age_days,
+            "employment_types": sorted(prof.employment_types),
+            "max_min_years": prof.max_min_years,
+        },
+        "areas": [label for label, _ in prof.areas],
+        "area_default": prof.area_default,
+        "skills": [name for name, _ in prof.skills],
+    }))
+    return 0
+
+
 def main(argv=None) -> int:
     setup_logging()
+    if _PROFILE_ERROR is not None:
+        print(json.dumps({"error": str(_PROFILE_ERROR)}))
+        return 2
     parser = argparse.ArgumentParser(prog="jobs")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -962,6 +1011,10 @@ def main(argv=None) -> int:
     p_auth = sub.add_parser("auth")
     p_auth.add_argument("action", choices=["set-token", "check"])
     p_auth.set_defaults(func=cmd_auth)
+
+    p_profile = sub.add_parser("profile")
+    p_profile.add_argument("--path")
+    p_profile.set_defaults(func=cmd_profile)
 
     p_summary = sub.add_parser("summary")
     p_summary.add_argument("--run-id")
