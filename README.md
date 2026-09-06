@@ -67,78 +67,94 @@ A fresh empty template does not need it.
 
 ## 3. Configure the search
 
-All search configuration lives in `data/keywords.toml`. Retargeting the
-pipeline at a different job title or field (say, data engineer instead of AI
-engineer) is a change to this file, not to the Python.
+Everything target-specific lives in `data/keywords.toml`. Retargeting the
+pipeline at a different title or field is a change to this file, not the Python.
+The file answers three questions.
 
-### `keywords`
+### What to ask LinkedIn: `keywords` and `[search]`
 
-The list of LinkedIn query strings, in priority order. LinkedIn is queried with
-`sortBy=DD` (newest first), and a shared seen-set stops a keyword early once a
-page adds no new ID, so early-career targets lead and broad catch-alls trail.
+`keywords` is the list of query strings, in priority order. LinkedIn is queried
+with `sortBy=DD` (newest first) and a shared seen-set stops a keyword once a
+page adds no new ID, so early-career terms lead and broad catch-alls trail.
 
-Default (AI engineer):
-```toml
-keywords = [
-  "new grad AI engineer",
-  "entry level AI engineer",
-  "junior AI engineer",
-  "LLM engineer",
-  ...
-  "AI engineer",
-]
-```
+`[search]` is forwarded to LinkedIn's guest search. Every `f_*` key becomes a
+query parameter (`max_pages` is the exception, a pipeline knob):
 
-Data-engineer fork: replace those strings with `"new grad data engineer"`,
-`"entry level data engineer"`, `"junior data engineer"`, `"data engineer"`,
-and so on.
+| Key | Values |
+|---|---|
+| `location` | free text, as typed into LinkedIn (`"United States"`, `"Remote"`, `"Berlin, Germany"`) |
+| `f_JT` | job type: `F` full-time, `P` part-time, `C` contract, `T` temporary, `I` internship, `O` other; comma-join for several. Must agree with `filters.employment_types`. |
+| `f_E` | experience: `1` internship, `2` entry, `3` associate, `4` mid-senior, `5` director, `6` executive; comma-join. LinkedIn applies it loosely; the title and years filters do the real work. |
+| `f_WT` | work mode: `1` on-site, `2` remote, `3` hybrid; comma-join. Optional; omit for all. |
+| `sortBy` | `DD` newest first, `R` relevance. Keep `DD`; the seen-set assumes it. |
+| `max_pages` | integer; pages of 10 per keyword. |
+| `f_TPR_past_24h`, `f_TPR_past_week` | `r<seconds>` window tokens; the pipeline picks one per run. |
 
-### `[search]`
+### What to throw away: `[filters]`
 
-Controls LinkedIn search filters: `location`, `f_JT` (job type), `f_E`
-(experience level bitmask), `sortBy`, and `max_pages` per keyword. The two
-`f_TPR_*` values are the date-window tokens LinkedIn uses for past-24h and
-past-week filtering; the pipeline picks between them automatically.
+Card stage, before any detail is fetched:
 
-### `[seniority]`
+- `exclude_title_terms`: a card whose title carries one of these is dropped.
+- `max_age_days`: reject cards older than this (default 2).
+- `long_window_title_terms`: titles matching one get `long_window_max_age_days`
+  (default 14) instead. `[]` turns the wider window off.
 
-Two lists that run at the card stage (before detail HTML is fetched):
+Detail stage, after the posting body is fetched:
 
-- `exclude_title_terms`: any card whose title contains one of these terms is
-  dropped immediately. Keeps senior, staff, and principal titles out.
-- `new_grad_title_terms`: cards matching one of these get a 14-day freshness
-  window instead of the default 2 days.
+- `employment_types`: LinkedIn's label must be in this list; `[]` accepts every
+  type. Keep it in step with `f_JT`.
+- `exclude_description_terms`: reject a body carrying one of these.
+- `max_min_years`: reject when the parsed minimum years exceed this; omit to
+  disable.
 
-### `[relevance]`
+### How to label what is left: `[relevance]`, `[skills]`, `[areas]`, `[priority]`
 
-A relevance gate that runs on the parsed detail. A posting must clear the bar:
-two `core_skills` hits, or one `core_skills` hit plus a `terms` hit in both the
-title and the body. `terms` are matched case-insensitively with word boundaries;
-`core_skills` are named patterns from `extract.py`.
+- `[relevance]`: the gate on the parsed detail. A posting passes with two
+  `core_skills` hits, or one plus a `terms` hit in both the title and body.
+  `terms` match case-insensitively with word boundaries; `core_skills` are keys
+  of `[skills]`.
+- `[skills]`: the skill vocabulary, one `name = 'regex'` per line. It fills the
+  Notion `Parsed Skills` field (first 12 hits, so order matters), backs
+  `core_skills`, and marks requirement lines.
+- `[areas]`: the Notion `Job Area` multi-select. `default` is the fallback.
+  Each `[[areas.map]]` has a `label` (the Notion option) and a raw `pattern`;
+  areas are tried in order, at most 3 tagged, a pattern matching the title or
+  hitting the description twice.
+- `[priority]`: one `Priority Score` per Seniority label, 1 best. All seven
+  labels are required.
 
-The defaults are tuned for AI/ML. A data-engineer fork rewrites `terms` to data
-and ETL vocabulary (`etl`, `dbt`, `spark`, `airflow`, `kafka`, `data pipeline`,
-`warehouse`, `lakehouse`, and so on) and `core_skills` to the corresponding
-skill names.
+### Common changes
 
-### `[areas]`
+- **A different title in the same field**: edit `keywords`.
+- **Senior roles**: move junior terms into `exclude_title_terms`, set
+  `long_window_title_terms = []`, omit `max_min_years`, set `f_E = "4,5"`, and
+  invert `[priority]` (Senior 1). See `data/examples/senior-backend.toml`.
+- **Internships or contract work**: set `f_JT` and `employment_types` together
+  (`"I"` / `["Internship"]`, or `"C"` / `["Contract"]`). See
+  `data/examples/remote-internship.toml`.
+- **Remote only**: add `f_WT = "2"`.
+- **Another country**: change `location`. The haiku fallback writes `Remote
+  (US)` for US-remote roles; adjust that expectation for another region.
+- **A field outside AI** (data, backend, ...): rewrite `[relevance]`,
+  `[skills]`, and `[areas]` together. See `data/examples/data-engineer.toml`.
 
-Controls the Notion `Job Area` multi-select. `default` is the fallback label
-when no pattern matches. Each `[[areas.map]]` entry has a `label` (the Notion
-option name) and a `pattern` (raw regex, case-insensitive). Areas are evaluated
-in order; at most 3 are tagged per job. The pattern matches against the title, or
-against the description when it hits at least twice.
+`Job Area` labels become Notion multi-select options the first time a job is
+written with one, so a new label needs no schema edit. After switching fields,
+delete the old AI options in the Notion UI so they stop showing on the board.
 
-A data-engineer fork replaces the current area labels and patterns with
-data-oriented ones: `ETL / Pipelines`, `Data Platform`, `Analytics Eng`,
-`Streaming`, `Data Quality`, and a `default` of `"General Data"`.
+### Check your edit
+
+`uv run jobs profile` compiles the file and prints the summary; it exits 2
+naming the section and key on a bad edit. Then `uv run jobs fetch` (set
+`max_pages = 1` for a quick first look) and `uv run jobs summary` show the
+rejection counts by rule.
 
 ### `companies.toml`
 
 Holds three employer lists: `aggregators`, `startups`, and `reliable`.
 Aggregators are excluded outright (staffing agencies, job boards). Startups and
 reliable employers only influence the `Source Type` Notion label: a company on
-neither list gets `"Direct company"` or `"Startup signal"` depending on signal
+neither list gets `"Direct company"` or `"Startup signal"` from signal
 heuristics; listed companies get `"Startup (listed)"` or `"Reliable (listed)"`.
 
 ---
@@ -169,7 +185,7 @@ properties are:
 | Minimum Years Signal | rich\_text | extracted from posting |
 | Minimum / Basic Qualifications | rich\_text | max 1800 chars |
 | Preferred Qualifications | rich\_text | max 1800 chars |
-| Parsed Skills | rich\_text | named skills from `extract.py` |
+| Parsed Skills | rich\_text | named skills from `[skills]` |
 | Requirement Signal | rich\_text | summary signal string |
 | Status | formula | Notion-owned; the pipeline never writes this |
 | Applied | checkbox | set `false` on create; never written again |
@@ -201,15 +217,15 @@ properties are:
 | LinkedIn seniority == "Mid-Senior level" (so `min_years_lower` > 6) | Senior |
 | otherwise | Unknown |
 
-**Priority Score**:
+**Priority Score**: one per Seniority label, set in `[priority]` (1 best). The
+shipped default:
 
-| Seniority / years | Score |
+| Seniority | Score |
 |---|---|
 | New Grad | 1 |
-| Junior, Entry Level, Internship | 2 |
-| otherwise, `min_years_lower` ≤ 4 (or None) | 3 |
-| otherwise, `min_years_lower` ≤ 6 | 4 |
-| otherwise | 6 |
+| Internship, Junior, Entry Level | 2 |
+| Associate, Unknown | 3 |
+| Senior | 6 |
 
 ### Schema validation
 
@@ -351,8 +367,8 @@ and hardcoded. Keep them.
 
 `jobs fetch` runs each keyword through LinkedIn's guest search, newest first.
 A shared seen-set stops a keyword early once a page adds no new ID. Cards are
-filtered by title (`exclude_title_terms`), freshness (2-day window, 14 days for
-new-grad titles), and a dedup check against the cache. Remaining new cards get
+filtered by title (`exclude_title_terms`), freshness (`max_age_days`, longer for
+`long_window_title_terms`), and a dedup check against the cache. Remaining new cards get
 their detail HTML fetched into `data/details/`. Known jobs receive a refresh
 (updated location or repost date) without re-fetching the detail.
 
@@ -382,6 +398,7 @@ all city locations and all LinkedIn IDs.
 | `jobs sync [--dry-run]` | Create and update Notion pages; `--dry-run` prints the plan |
 | `jobs apply-extractions --file PATH` | Merge haiku extraction output into `jobs.json` |
 | `jobs daily [--dry-run]` | Run fetch, extract, and sync in one process (no haiku step) |
+| `jobs profile [--path PATH]` | Compile `keywords.toml` and print the summary; exit 2 on a bad edit |
 | `jobs summary` | Print the last run's summary as plain text |
 | `jobs notify` | Send the macOS notification for the last run |
 | `jobs bootstrap [--force]` | Load the whole Notion database into the cache |
