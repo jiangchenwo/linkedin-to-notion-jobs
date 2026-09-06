@@ -1,3 +1,9 @@
+# Edit this file to retarget the scraper at a different job title or field.
+# Everything here is the search profile: the keywords LinkedIn is queried with,
+# the search filters, and the title/relevance/area lists the pipeline classifies
+# with. Changing the title (e.g. from AI engineer to data engineer) is a change
+# to this file, not to the Python. companies.toml holds the employer lists.
+
 # Order is priority order: sortBy=DD + the shared seen-set give the first
 # keywords full page depth before the set fills, so early-career targets lead
 # and the broad catch-all trails.
@@ -20,3 +26,72 @@ sortBy = "DD"       # newest first
 max_pages = 10      # per keyword; a shared seen-set also stops a keyword once a page adds no new id
 f_TPR_past_24h = "r86400"
 f_TPR_past_week = "r604800"
+
+[seniority]
+# Titles carrying any exclude term are dropped at the card stage. Titles carrying
+# a new-grad term widen the freshness window from 2 to 14 days.
+exclude_title_terms = [
+  "senior", "sr", "staff", "principal", "lead", "manager", "director",
+  "distinguished", "head", "vp", "architect",
+]
+new_grad_title_terms = [
+  "new grad", "new graduate", "early career", "entry-level", "entry level",
+  "university grad", "graduate engineer",
+]
+
+[relevance]
+# A posting must clear the AI/ML relevance bar: two core skills, or one core
+# skill plus a `terms` hit in both the title and the body. `terms` are matched
+# case-insensitively with word boundaries; `core_skills` are names from
+# SKILL_PATTERNS in extract.py.
+terms = [
+  "ai", "artificial intelligence", "machine learning", "ml", "genai",
+  "generative ai", "llm", "rag", "retrieval", "embedding", "vector",
+  "agentic", "agent", "prompt", "computer vision", "deep learning", "nlp",
+  "pytorch", "tensorflow", "sagemaker", "bedrock", "model serving", "mlops",
+]
+core_skills = [
+  "LLM/GenAI", "RAG/retrieval", "Model serving/MLOps", "PyTorch",
+  "TensorFlow", "NLP", "Computer vision/OCR", "Agents/workflows",
+  "Evals/testing",
+]
+
+[areas]
+# The Notion `Job Area` multi-select. `default` is the fallback when nothing
+# matches. Each map entry is an area, in priority order (max 3 tagged per job):
+# an area is tagged when its pattern hits the title, or hits the description at
+# least twice. Patterns are raw regex (case-insensitive) so the non-word
+# boundaries the current areas rely on stay intact.
+default = "General AI"
+
+[[areas.map]]
+label = "Agents"
+pattern = '\bagent(s|ic)?\b|multi-agent|copilot|tool[- ]?(use|calling)|\bmcp\b|orchestrat'
+
+[[areas.map]]
+label = "LLM / GenAI"
+pattern = '\bllms?\b|large language|gen(erative)? ?ai|foundation model|\brag\b|prompt|fine-?tun|transformer|diffusion'
+
+[[areas.map]]
+label = "Computer Vision"
+pattern = 'computer vision|\bcv\b|perception|image|video|\b3d\b|camera|object detection|segmentation'
+
+[[areas.map]]
+label = "World Models / Robotics"
+pattern = 'world model|robot|embodied|autonomous|self-driving|simulation|reinforcement'
+
+[[areas.map]]
+label = "NLP / Speech"
+pattern = '\bnlp\b|natural language|speech|\basr\b|text-to-speech|conversational'
+
+[[areas.map]]
+label = "Recommendation / Search"
+pattern = 'recommend|ranking|\bsearch\b|retrieval|personaliz|\bads\b'
+
+[[areas.map]]
+label = "ML Infra / MLOps"
+pattern = 'mlops|ml ?platform|inference|serving|distributed|\bgpu\b|cuda|kernel|compiler|training infra'
+
+[[areas.map]]
+label = "Applied ML"
+pattern = 'machine learning|\bml\b|data scien|applied scien|\bresearch\b'

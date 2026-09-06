@@ -12,11 +12,12 @@ import logging
 import random
 import re
 import time
-import tomllib
 from html import unescape
 
 import httpx
 from bs4 import BeautifulSoup
+
+from . import profile
 
 from .models import Card, Detail
 
@@ -125,9 +126,10 @@ def parse_detail(html: str, job_id: str) -> Detail:
 
 
 def load_keywords(path: str = "data/keywords.toml") -> tuple[list[str], dict]:
-    with open(path, "rb") as f:
-        data = tomllib.load(f)
-    return data["keywords"], data["search"]
+    """The keyword list and search config only; the full profile (title,
+    relevance, and area lists) loads via profile.load()."""
+    prof = profile.load(path)
+    return list(prof.keywords), prof.search
 
 
 class GuestClient:
