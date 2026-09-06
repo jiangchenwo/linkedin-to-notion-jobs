@@ -1,5 +1,5 @@
 [project]
-name = "job-listings-scraper"
+name = "linkedin-to-notion-jobs"
 version = "0.1.0"
 description = "LinkedIn to Notion daily AI-engineer job scraper"
 requires-python = ">=3.12"

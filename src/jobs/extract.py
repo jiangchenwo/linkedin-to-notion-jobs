@@ -1,14 +1,15 @@
 """Field extraction: one function per Notion field, plus canon()/sibling_key()
 and build_job() that assembles a Job from a sibling group and its Detail.
 
-The heading regexes, SKILL_PATTERNS, source_quality logic, work_mode, and h1b
-phrase lists are ported from the old repo (analyze_linkedin_jobs.py and
-notion_job_sync.py). The minimum-years parser is the reworked table from the
-Phase 2 plan, not the old multi-signal version."""
+The minimum-years parser is a single-table lookup, not a multi-signal
+accumulation: one heading section drives the value."""
 
 import re
 
+from . import profile
 from .models import Card, Detail, Job
+
+PROFILE = profile.load()
 
 _NON_ALNUM = re.compile(r"[^a-z0-9\s]")
 _WS = re.compile(r"\s+")
@@ -26,7 +27,6 @@ def sibling_key(company: str, title: str) -> str:
     return f"{canon(company)}::{canon(title)}"
 
 
-# Ported verbatim from analyze_linkedin_jobs.py:235-269.
 SKILL_PATTERNS = {
     "Python": r"\bpython\b",
     "SQL": r"\bsql\b|postgres|mysql|database",
@@ -64,7 +64,7 @@ SKILL_PATTERNS = {
 }
 
 
-# --- qualifications sections (ported from analyze_linkedin_jobs.py:194-386) ---
+# --- qualifications sections ---
 
 MINIMUM_HEADING_RE = re.compile(
     r"\b(?:"
@@ -402,7 +402,7 @@ def priority(seniority_value: str, min_years_lower: int | None) -> int:
     return 6
 
 
-# --- work mode, h1b, skills, requirement signal (ported) ---
+# --- work mode, h1b, skills, requirement signal ---
 
 
 def work_mode(cards: list[Card], detail: Detail) -> str:
@@ -488,7 +488,7 @@ def requirement_signal(detail: Detail, skills_csv: str, limit: int = 3) -> str:
     return ", ".join([s for s in skills_csv.split(", ") if s][:5])
 
 
-# --- source type (ported from analyze_linkedin_jobs.py:521-538) ---
+# --- source type ---
 
 _STARTUP_SIGNAL_RE = re.compile(
     r"startup|venture-backed|seed|series [abc]|founding|equity", re.I
@@ -530,37 +530,16 @@ SOURCE_TYPE_LABELS = {
 
 # --- job area (Notion `Job Area` multi-select) ---
 
-# Ordered (label, pattern): the Notion option order and the output order, Agents
-# first. An area is tagged when its pattern hits the title, or hits the
-# description at least twice (one stray "image" is noise).
-AREAS = [
-    (label, re.compile(pat, re.I))
-    for label, pat in [
-        ("Agents", r"\bagent(s|ic)?\b|multi-agent|copilot|tool[- ]?(use|calling)|\bmcp\b|orchestrat"),
-        ("LLM / GenAI", r"\bllms?\b|large language|gen(erative)? ?ai|foundation model|\brag\b|prompt|fine-?tun|transformer|diffusion"),
-        ("Computer Vision", r"computer vision|\bcv\b|perception|image|video|\b3d\b|camera|object detection|segmentation"),
-        ("World Models / Robotics", r"world model|robot|embodied|autonomous|self-driving|simulation|reinforcement"),
-        ("NLP / Speech", r"\bnlp\b|natural language|speech|\basr\b|text-to-speech|conversational"),
-        ("Recommendation / Search", r"recommend|ranking|\bsearch\b|retrieval|personaliz|\bads\b"),
-        ("ML Infra / MLOps", r"mlops|ml ?platform|inference|serving|distributed|\bgpu\b|cuda|kernel|compiler|training infra"),
-        ("Applied ML", r"machine learning|\bml\b|data scien|applied scien|\bresearch\b"),
-    ]
-]
+# The area map and its order come from data/keywords.toml; kept as a module name
+# for callers and tests that read the default order.
+AREAS = PROFILE.areas
 
 
 def areas(title: str, description_text: str) -> list[str]:
-    """The job's AI areas: each area whose pattern hits the title or hits the
-    description at least twice, in AREAS order, capped at 3. ['General AI'] when
-    nothing matched. Pure function."""
-    title = title or ""
-    description_text = description_text or ""
-    out = []
-    for label, pat in AREAS:
-        if pat.search(title) or len(pat.findall(description_text)) >= 2:
-            out.append(label)
-            if len(out) == 3:
-                break
-    return out or ["General AI"]
+    """The job's AI areas per the profile: each area whose pattern hits the
+    title or hits the description at least twice, in profile order, capped at 3;
+    ['General AI'] when nothing matched. Pure function."""
+    return PROFILE.match_areas(title, description_text)
 
 
 # --- unresolved fields ---

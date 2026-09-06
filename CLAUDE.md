@@ -1,4 +1,4 @@
-# job-listings-scraper
+# linkedin-to-notion-jobs
 
 A daily pipeline that fetches early-career AI-engineer jobs from LinkedIn's
 public guest endpoints and syncs them to a Notion database. Every deterministic
@@ -17,9 +17,11 @@ step is a Python CLI; a local SQLite cache is the dedupe source of truth.
 - Never write `Applied`, `Neglected`, `Unavailable`, or `First Seen` to Notion
   after a page is created.
 - Never add a Notion property or change the schema. `check_schema` asserts the
-  live schema before any write. The schema was last changed by hand in the
-  Notion UI on 2026-09-06 (Source Type became a `select`; `Job Area`
-  multi-select added); `EXPECTED_SCHEMA` in `notion.py` is the record of it.
+  live schema before any write; `EXPECTED_SCHEMA` in `notion.py` is the record
+  of the expected shape.
+- To retarget the scraper at a different title or field, edit
+  `data/keywords.toml` (seniority, relevance, and area lists) and
+  `companies.toml`; never `EXPECTED_SCHEMA` or the Notion schema.
 - Python never calls an LLM. The only model call is the haiku subagent the skill
   spawns; the CLI stays deterministic and testable.
 - Fixtures under `tests/fixtures/` must be scrubbed: no real company names, job

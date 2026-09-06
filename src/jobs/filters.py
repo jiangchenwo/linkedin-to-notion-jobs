@@ -5,25 +5,16 @@ detail_stage does the same for the detail-stage rules."""
 import re
 from datetime import date, timedelta
 
+from . import profile
 from .extract import SKILL_PATTERNS, canon, source_type
 from .models import Card, Detail
 
-# Ported verbatim from analyze_linkedin_jobs.py:123-126.
-SENIOR_TITLE_RE = re.compile(
-    r"\b(senior|sr\.?|staff|principal|lead|manager|director|distinguished|head|vp|architect)\b",
-    re.I,
-)
-
-# Ported verbatim from daily_ai_jobs.py:43-46.
-NEW_GRAD_TITLE_RE = re.compile(
-    r"\b(new grad|new graduate|early career|entry[- ]level|university grad|graduate engineer)\b",
-    re.I,
-)
+PROFILE = profile.load()
 
 
 def date_window(card: Card, run_date: date) -> str | None:
     """Reject cards older than 2 days (14 for new-grad titles)."""
-    limit_days = 14 if NEW_GRAD_TITLE_RE.search(card.title) else 2
+    limit_days = 14 if PROFILE.new_grad_title_re.search(card.title) else 2
     cutoff = run_date - timedelta(days=limit_days)
     try:
         posted = date.fromisoformat(card.date_posted)
@@ -33,7 +24,7 @@ def date_window(card: Card, run_date: date) -> str | None:
 
 
 def title_seniority(card: Card) -> str | None:
-    return "title_seniority" if SENIOR_TITLE_RE.search(card.title) else None
+    return "title_seniority" if PROFILE.senior_title_re.search(card.title) else None
 
 
 def aggregator_company(card: Card, aggregators: set[str]) -> str | None:
@@ -55,30 +46,9 @@ def card_stage(card: Card, run_date: date, aggregators: set[str]) -> str | None:
 
 # --- detail-stage rules ---
 
-# Ported verbatim from analyze_linkedin_jobs.py:133-139.
-AI_RE = re.compile(
-    r"\b(ai|artificial intelligence|machine learning|ml\b|genai|generative ai|llm|"
-    r"rag|retrieval|embedding|vector|agentic|agent\b|prompt|computer vision|"
-    r"deep learning|nlp|pytorch|tensorflow|sagemaker|bedrock|model serving|mlops)\b",
-    re.I,
-)
 CONTRACT_RE = re.compile(
     r"\b(contract|temporary|temp to perm|contract to full)\b", re.I
 )
-
-# The subset of SKILL_PATTERNS that classify_posting treats as core AI evidence
-# (analyze_linkedin_jobs.py:579-590).
-CORE_AI_SKILLS = {
-    "LLM/GenAI",
-    "RAG/retrieval",
-    "Model serving/MLOps",
-    "PyTorch",
-    "TensorFlow",
-    "NLP",
-    "Computer vision/OCR",
-    "Agents/workflows",
-    "Evals/testing",
-}
 
 
 def employment_type(detail: Detail) -> str | None:
@@ -99,9 +69,11 @@ def ai_relevance(card: Card, detail: Detail) -> str | None:
     core = [
         name
         for name, pat in SKILL_PATTERNS.items()
-        if name in CORE_AI_SKILLS and re.search(pat, combined, re.I)
+        if name in PROFILE.core_skills and re.search(pat, combined, re.I)
     ]
-    both_ai = bool(AI_RE.search(title)) and bool(AI_RE.search(text))
+    both_ai = bool(PROFILE.relevance_re.search(title)) and bool(
+        PROFILE.relevance_re.search(text)
+    )
     relevant = (both_ai and len(core) >= 1) or len(core) >= 2
     return None if relevant else "ai_relevance"
 

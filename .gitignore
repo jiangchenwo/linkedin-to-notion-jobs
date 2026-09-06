@@ -180,7 +180,8 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 
-.claude/
+.claude/logs/
+.claude/scheduled_tasks.lock
 docs/
 
 # Job scraper runtime state (secrets, cache, per-run and raw HTML artifacts)
