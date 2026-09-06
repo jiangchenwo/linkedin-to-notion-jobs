@@ -1,10 +1,29 @@
 from datetime import date
 
 from jobs.extract import canon
-from jobs.filters import aggregator_company, card_stage, date_window, title_seniority
-from jobs.models import Card
+from jobs.filters import (
+    aggregator_company,
+    ai_relevance,
+    card_stage,
+    date_window,
+    detail_stage,
+    employment_type,
+    min_years_cap,
+    source_quality,
+    thin_posting,
+    title_seniority,
+)
+from jobs.linkedin import parse_detail
+from jobs.models import Card, Detail
+
+from conftest import read_fixture
 
 RUN_DATE = date(2026, 9, 5)
+COMPANIES = {"aggregator": {canon("Robert Half")}, "startup": set(), "reliable": set()}
+
+
+def detail_from(name):
+    return parse_detail(read_fixture(name), "1")
 
 
 def make_card(title="AI Engineer", company="Acme Corp", date_posted="2026-09-05"):
@@ -52,3 +71,47 @@ def test_card_stage_returns_first_rejecting_rule():
     assert card_stage(make_card(title="Senior AI Engineer"), RUN_DATE, aggregators) == "title_seniority"
     # clean card passes
     assert card_stage(make_card(), RUN_DATE, aggregators) is None
+
+
+def test_employment_type():
+    assert employment_type(detail_from("detail_contract.html")) == "employment_type"
+    assert employment_type(detail_from("detail_junior.html")) is None
+
+
+def test_ai_relevance():
+    assert (
+        ai_relevance(make_card(title="Backend Software Engineer"), detail_from("detail_not_ai.html"))
+        == "ai_relevance"
+    )
+    assert (
+        ai_relevance(make_card(title="Machine Learning Engineer"), detail_from("detail_junior.html"))
+        is None
+    )
+
+
+def test_min_years_cap():
+    assert min_years_cap(7) == "min_years_cap"
+    assert min_years_cap(6) is None
+    assert min_years_cap(None) is None
+
+
+def test_source_quality():
+    assert source_quality("Robert Half", COMPANIES) == "source_quality"
+    assert source_quality("Confidential Jobs", COMPANIES) == "source_quality"
+    assert source_quality("Beta Labs", COMPANIES) is None
+
+
+def test_thin_posting():
+    assert thin_posting(detail_from("detail_thin.html")) == "thin_posting"
+    assert thin_posting(detail_from("detail_junior.html")) is None
+
+
+def test_detail_stage_returns_first_rejecting_rule():
+    # contract employment AND a thin, non-AI body: employment_type runs first
+    detail = Detail(job_id="1", employment_type="Contract", description_text="short")
+    assert detail_stage(make_card(title="AI Engineer"), detail, None, COMPANIES) == "employment_type"
+    # full-time, AI-relevant, but asks for 8 years: min_years_cap after the earlier passes
+    junior = detail_from("detail_junior.html")
+    assert detail_stage(make_card(title="Machine Learning Engineer"), junior, 8, COMPANIES) == "min_years_cap"
+    # clean detail passes every rule
+    assert detail_stage(make_card(title="Machine Learning Engineer"), junior, 2, COMPANIES) is None
