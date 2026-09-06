@@ -518,6 +518,51 @@ def source_type(company: str, description_text: str, companies: dict) -> str:
     return "direct_company"
 
 
+# Readable labels for the Notion `Source Type` select. The excluded_* values
+# never reach Notion, so they are absent; source_type() itself is unchanged.
+SOURCE_TYPE_LABELS = {
+    "direct_startup": "Startup (listed)",
+    "direct_reliable_company": "Reliable (listed)",
+    "startup_or_growth_company": "Startup signal",
+    "direct_company": "Direct company",
+}
+
+
+# --- job area (Notion `Job Area` multi-select) ---
+
+# Ordered (label, pattern): the Notion option order and the output order, Agents
+# first. An area is tagged when its pattern hits the title, or hits the
+# description at least twice (one stray "image" is noise).
+AREAS = [
+    (label, re.compile(pat, re.I))
+    for label, pat in [
+        ("Agents", r"\bagent(s|ic)?\b|multi-agent|copilot|tool[- ]?(use|calling)|\bmcp\b|orchestrat"),
+        ("LLM / GenAI", r"\bllms?\b|large language|gen(erative)? ?ai|foundation model|\brag\b|prompt|fine-?tun|transformer|diffusion"),
+        ("Computer Vision", r"computer vision|\bcv\b|perception|image|video|\b3d\b|camera|object detection|segmentation"),
+        ("World Models / Robotics", r"world model|robot|embodied|autonomous|self-driving|simulation|reinforcement"),
+        ("NLP / Speech", r"\bnlp\b|natural language|speech|\basr\b|text-to-speech|conversational"),
+        ("Recommendation / Search", r"recommend|ranking|\bsearch\b|retrieval|personaliz|\bads\b"),
+        ("ML Infra / MLOps", r"mlops|ml ?platform|inference|serving|distributed|\bgpu\b|cuda|kernel|compiler|training infra"),
+        ("Applied ML", r"machine learning|\bml\b|data scien|applied scien|\bresearch\b"),
+    ]
+]
+
+
+def areas(title: str, description_text: str) -> list[str]:
+    """The job's AI areas: each area whose pattern hits the title or hits the
+    description at least twice, in AREAS order, capped at 3. ['General AI'] when
+    nothing matched. Pure function."""
+    title = title or ""
+    description_text = description_text or ""
+    out = []
+    for label, pat in AREAS:
+        if pat.search(title) or len(pat.findall(description_text)) >= 2:
+            out.append(label)
+            if len(out) == 3:
+                break
+    return out or ["General AI"]
+
+
 # --- unresolved fields ---
 
 _GENERIC_LOCATION_RE = re.compile(
@@ -572,6 +617,7 @@ def build_job(group: dict, detail: Detail, companies: dict, run_date) -> Job:
         priority_score=priority(sen, lower),
         h1b_sponsorship=h1b(detail),
         source_type=source_type(lowest.company, detail.description_text, companies),
+        areas=areas(lowest.title, detail.description_text),
         min_years_signal=signal,
         min_years_lower=lower,
         minimum_qualifications=minimum_q,

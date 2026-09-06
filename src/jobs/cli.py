@@ -16,7 +16,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from . import cache, notify, sync
-from .extract import build_job, canon, min_years, sibling_key
+from .extract import areas, build_job, canon, min_years, sibling_key
 from .filters import card_stage, detail_stage
 from .linkedin import Blocked, BudgetExhausted, GuestClient, load_keywords, parse_detail
 from .models import Card, Refresh
@@ -600,6 +600,91 @@ def cmd_resync(args) -> int:
         conn.close()
 
 
+def _detail_for_page(props: dict) -> Path | None:
+    """First data/details/<job_id>.html that exists, resolving job IDs from
+    External ID and falling back to the digits of Posting Key."""
+    from .notion import _plain
+
+    ids = [p.strip() for p in _plain(props.get("External ID"), "rich_text").split(",") if p.strip()]
+    if not ids:
+        digits = "".join(c for c in _plain(props.get("Posting Key"), "rich_text") if c.isdigit())
+        ids = [digits] if digits else []
+    for job_id in ids:
+        path = _details_dir() / f"{job_id}.html"
+        if path.exists():
+            return path
+    return None
+
+
+def cmd_backfill(args) -> int:
+    """One-off: relabel Source Type rows off the four canonical labels to
+    'Direct company', and fill Job Area from a local detail page when the row's
+    Job Area is empty. Touches no other property."""
+    from .notion import (
+        AuthError, NotionClient, NotionError, SchemaError,
+        SOURCE_TYPE_OPTIONS, multi_select, select,
+    )
+
+    try:
+        client = NotionClient()
+        client.check_schema()
+    except (AuthError, SchemaError, NotionError) as e:
+        print(json.dumps({"error": str(e)}))
+        return 2
+
+    scanned = source_type_updated = job_area_updated = skipped_no_detail = failed = 0
+    candidates = 0
+    for page in client.query_all():
+        scanned += 1
+        props = page.get("properties", {})
+        changed: dict = {}
+        try:
+            cur_st = (props.get("Source Type", {}).get("select") or {}).get("name")
+            if cur_st is not None and cur_st not in SOURCE_TYPE_OPTIONS:
+                changed["Source Type"] = select("Direct company")
+                source_type_updated += 1
+
+            cur_area = props.get("Job Area", {}).get("multi_select") or []
+            if not cur_area:
+                detail_path = _detail_for_page(props)
+                if detail_path is None:
+                    if not changed:
+                        skipped_no_detail += 1
+                else:
+                    job_id = detail_path.stem
+                    detail = parse_detail(detail_path.read_text(), job_id)
+                    title = _page_title(props)
+                    changed["Job Area"] = multi_select(areas(title, detail.description_text))
+                    job_area_updated += 1
+
+            if not changed:
+                continue
+            candidates += 1
+            log.info("backfill %s: %s", page.get("id"), ", ".join(changed))
+            if not args.dry_run:
+                client.update_page(page["id"], changed)
+        except (NotionError, OSError) as e:
+            failed += 1
+            log.warning("backfill failed for %s: %s", page.get("id"), e)
+        if args.limit and candidates >= args.limit:
+            break
+
+    print(json.dumps({
+        "scanned": scanned,
+        "source_type_updated": source_type_updated,
+        "job_area_updated": job_area_updated,
+        "skipped_no_detail": skipped_no_detail,
+        "failed": failed,
+    }))
+    return 1 if failed else 0
+
+
+def _page_title(props: dict) -> str:
+    from .notion import _plain
+
+    return _plain(props.get("Job Title"), "title")
+
+
 def cmd_auth(args) -> int:
     from .notion import AuthError, NotionClient, NotionError, set_token
 
@@ -867,6 +952,11 @@ def main(argv=None) -> int:
     p_bootstrap = sub.add_parser("bootstrap")
     p_bootstrap.add_argument("--force", action="store_true")
     p_bootstrap.set_defaults(func=cmd_bootstrap)
+
+    p_backfill = sub.add_parser("backfill")
+    p_backfill.add_argument("--dry-run", action="store_true")
+    p_backfill.add_argument("--limit", type=int)
+    p_backfill.set_defaults(func=cmd_backfill)
     sub.add_parser("resync").set_defaults(func=cmd_resync)
 
     p_auth = sub.add_parser("auth")

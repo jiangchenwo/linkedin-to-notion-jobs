@@ -54,6 +54,17 @@ def test_check_schema_reports_type_mismatch():
         client.check_schema()
 
 
+def test_check_schema_reports_missing_source_type_option():
+    schema = load("data_source.json")
+    opts = schema["properties"]["Source Type"]["select"]["options"]
+    schema["properties"]["Source Type"]["select"]["options"] = [
+        o for o in opts if o["name"] != "Reliable (listed)"
+    ]
+    client = make_client(schema_handler(schema))
+    with pytest.raises(notion.SchemaError, match="Reliable \\(listed\\)"):
+        client.check_schema()
+
+
 def test_query_all_follows_cursor():
     page = load("query_page.json")
     last = load("query_last.json")
@@ -151,6 +162,7 @@ def _job():
         priority_score=2,
         h1b_sponsorship="Unknown",
         source_type="direct_company",
+        areas=["Agents", "LLM / GenAI"],
         min_years_signal="2+",
     )
 
@@ -161,7 +173,8 @@ def test_build_create_properties_wraps_every_field():
     assert p["Company"]["rich_text"][0]["text"]["content"] == "Beta Labs"
     assert p["Location"]["rich_text"][0]["text"]["content"] == "Austin, TX; Remote"
     assert p["Work Mode"]["select"]["name"] == "Remote"
-    assert p["Source Type"]["rich_text"][0]["text"]["content"] == "direct_company"
+    assert p["Source Type"]["select"]["name"] == "Direct company"
+    assert [o["name"] for o in p["Job Area"]["multi_select"]] == ["Agents", "LLM / GenAI"]
     assert p["Priority Score"]["number"] == 2
     assert p["Applied"]["checkbox"] is False
     assert p["Job URL"]["url"] == "https://www.linkedin.com/jobs/view/4000000001/"

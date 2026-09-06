@@ -1,6 +1,9 @@
 import pytest
 
 from jobs.extract import (
+    AREAS,
+    SOURCE_TYPE_LABELS,
+    areas,
     build_job,
     canon,
     h1b,
@@ -137,6 +140,50 @@ def test_source_type_binding_constraint():
     assert source_type("Amazon", "", companies) == "direct_reliable_company"
     # unrecognized company is never excluded
     assert source_type("Nimbus Robotics Inc.", "", companies) == "direct_company"
+
+
+def test_areas_title_match_wins_alone():
+    # a single title hit is enough; the description need not repeat it
+    assert areas("Agentic AI Engineer", "We build web apps.") == ["Agents"]
+
+
+def test_areas_description_needs_two_mentions():
+    one = "We process one image per request."
+    two = "Image pipelines for image classification."
+    assert "Computer Vision" not in areas("Engineer", one)
+    assert "Computer Vision" in areas("Engineer", two)
+
+
+def test_areas_order_follows_areas_list_agents_first():
+    desc = "Our agents call agents; llm and llm work; image and image work."
+    result = areas("Engineer", desc)
+    assert result[0] == "Agents"
+    order = [label for label, _ in AREAS]
+    assert result == sorted(result, key=order.index)
+
+
+def test_areas_caps_at_three():
+    desc = (
+        "agents agents llm llm image image robot robot "
+        "nlp nlp search search"
+    )
+    assert len(areas("Engineer", desc)) == 3
+
+
+def test_areas_general_ai_fallback():
+    assert areas("Software Engineer", "We build accounting software.") == ["General AI"]
+
+
+def test_source_type_labels_cover_non_excluded_returns():
+    companies = {"aggregator": set(), "startup": set(), "reliable": set()}
+    non_excluded = {
+        source_type("OpenAI", "series a funded", {"aggregator": set(), "startup": {canon("OpenAI")}, "reliable": set()}),
+        source_type("Amazon", "", {"aggregator": set(), "startup": set(), "reliable": {canon("Amazon")}}),
+        source_type("Acme", "we are a startup", companies),
+        source_type("Acme Inc.", "", companies),
+    }
+    for value in non_excluded:
+        assert value in SOURCE_TYPE_LABELS
 
 
 def _job(locations, min_years_signal):
