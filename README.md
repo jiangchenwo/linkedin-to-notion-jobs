@@ -24,6 +24,10 @@ jobs sync      create new pages, update reposted/relocated ones via Notion REST;
 A job posted in several cities appears once, with every city in `Location` and
 every LinkedIn ID in `External ID`. `Date Posted` tracks the latest repost.
 
+It reads LinkedIn's public guest pages politely: 3 to 6 seconds between requests
+and back-off on 429/403/999. Notion access uses an internal integration token,
+kept in the macOS Keychain, over the REST API.
+
 ## Setup
 
 Requires [uv](https://docs.astral.sh/uv/) and Python 3.12.
@@ -48,12 +52,18 @@ Requires [uv](https://docs.astral.sh/uv/) and Python 3.12.
 | `jobs fetch [--date-window past_24h\|past_week]` | Search, filter, group, fetch new details |
 | `jobs extract` | Parse details, filter, extract fields |
 | `jobs sync [--dry-run]` | Create and update Notion pages; `--dry-run` prints the plan |
+| `jobs apply-extractions --file PATH` | Merge the haiku extraction output into `jobs.json` |
+| `jobs daily [--dry-run]` | Run fetch, extract, and sync in one process (no haiku step) |
+| `jobs summary` | Print the last run's summary as plain text |
+| `jobs notify` | Send the macOS notification for the last run |
 | `jobs bootstrap [--force]` | Load the whole Notion database into the cache |
 | `jobs resync` | Reconcile the cache against Notion (added/removed/changed) |
 | `jobs auth set-token \| check` | Manage the Keychain token |
 
-`jobs apply-extractions`, `jobs daily`, `jobs summary`, and `jobs notify` are
-scaffolded and land in a later phase.
+For the scheduled run and the haiku fallback, Claude Code drives the CLI through
+the `daily-jobs` skill (`.claude/skills/daily-jobs/SKILL.md`). See
+[docs/runbook.md](docs/runbook.md) for the scheduled task, manual runs, and
+recovery.
 
 Each command prints progress to stderr and one JSON object as the last line of
 stdout. `fetch`, `sync`, and `daily` hold a single-flight lock. Exit codes:
@@ -84,3 +94,7 @@ tests/          scrubbed HTML and JSON fixtures
 
 Keyword and company lists live in `data/*.toml`. The cache, `.env`, raw detail
 HTML, and per-run files are gitignored.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
