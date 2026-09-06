@@ -7,14 +7,24 @@ repository root with `uv`.
 
 1. Open Claude Desktop.
 2. Follow https://code.claude.com/docs/en/desktop-scheduled-tasks to create a
-   task:
+   routine (scheduled task):
    - name: `daily-jobs`
    - schedule: daily at 08:00 local
-   - working directory: this repository
-   - prompt: `/daily-jobs`
-3. The run's summary appears in Claude Desktop under the "Scheduled" session
-   list, as the driver's final message.
-4. On a partial or failed run, a macOS notification appears titled
+   - working folder: this repository, and accept the trust prompt
+   - allowed tools: Bash, Read, Agent
+   - prompt:
+     ```
+     Read .claude/skills/daily-jobs/SKILL.md and follow its steps exactly.
+     Work from the repository root. Do nothing else.
+     ```
+3. Point the prompt at the skill file rather than typing `/daily-jobs`. A
+   routine does not reliably resolve the project slash-command (and does not
+   read `~/.claude/skills/`), so invoking `/daily-jobs` there fails with
+   "Unknown command". Reading the file and following it needs no skill
+   registration.
+4. The run's summary appears in Claude Desktop under the routine's session, as
+   the driver's final message.
+5. On a partial or failed run, a macOS notification appears titled
    `Daily jobs: partial` or `Daily jobs: failed` with the created/updated/failed
    counts and the log path.
 
