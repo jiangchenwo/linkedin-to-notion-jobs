@@ -13,9 +13,10 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from . import cache
-from .extract import canon, sibling_key
-from .filters import card_stage
-from .linkedin import Blocked, BudgetExhausted, GuestClient, load_keywords
+from .extract import build_job, canon, min_years, sibling_key
+from .filters import card_stage, detail_stage
+from .linkedin import Blocked, BudgetExhausted, GuestClient, load_keywords, parse_detail
+from .models import Card
 
 log = logging.getLogger("jobs")
 
@@ -102,10 +103,19 @@ def release_lock() -> None:
     _lock_path().unlink(missing_ok=True)
 
 
-def _load_aggregators() -> set[str]:
+def _load_companies() -> dict[str, set[str]]:
+    """The three company lists, canon()'d. `aggregator` also drives the card
+    filter; `startup`/`reliable` set the Source Type label in extraction."""
     with open(_data_dir() / "companies.toml", "rb") as f:
         data = tomllib.load(f)
-    return {canon(c) for c in data.get("aggregator", [])}
+    return {
+        name: {canon(c) for c in data.get(name, [])}
+        for name in ("aggregator", "startup", "reliable")
+    }
+
+
+def _load_aggregators() -> set[str]:
+    return _load_companies()["aggregator"]
 
 
 def _decide_window(conn, requested: str | None) -> str:
@@ -261,6 +271,105 @@ def cmd_fetch(args) -> int:
         conn.close()
 
 
+def _resolve_run_id(args) -> str | None:
+    if getattr(args, "run_id", None):
+        return args.run_id
+    latest = _runs_dir() / "latest"
+    return latest.read_text().strip() if latest.exists() else None
+
+
+def cmd_extract(args) -> int:
+    run_id = _resolve_run_id(args)
+    if not run_id:
+        print(json.dumps({"error": "no run id and no data/runs/latest"}))
+        return 2
+    run_dir = _runs_dir() / run_id
+    try:
+        groups_raw = json.loads((run_dir / "cards.json").read_text())
+    except (OSError, ValueError) as e:
+        print(json.dumps({"error": f"cannot read cards.json: {e}"}))
+        return 2
+
+    conn = cache.connect()
+    try:
+        companies = _load_companies()
+        run_date = _today().isoformat()
+        jobs_out: list[dict] = []
+        rejections_out: list[dict] = []
+        unresolved_out: list[dict] = []
+        rejected_by_rule: dict[str, int] = {}
+        not_fetched = 0
+
+        for g in groups_raw:
+            detail_path = g.get("detail_path")
+            if not detail_path:
+                not_fetched += 1
+                continue
+            cards = [Card.from_dict(c) for c in g["cards"]]
+            lowest = sorted(cards, key=lambda c: int(c.job_id))[0]
+            posting_key = g.get("posting_key") or f"linkedin:{lowest.job_id}"
+            try:
+                html = Path(detail_path).read_text()
+            except OSError as e:
+                log.warning("detail file %s unreadable, skipping: %s", detail_path, e)
+                continue
+            detail = parse_detail(html, lowest.job_id)
+
+            _, lower = min_years(detail)
+            rule = detail_stage(lowest, detail, lower, companies)
+            if rule:
+                cache.record_rejection(conn, run_id, lowest, rule, "detail")
+                rejections_out.append(
+                    {
+                        "posting_key": posting_key,
+                        "job_id": lowest.job_id,
+                        "title": lowest.title,
+                        "company": lowest.company,
+                        "rule": rule,
+                    }
+                )
+                rejected_by_rule[rule] = rejected_by_rule.get(rule, 0) + 1
+                continue
+
+            job = build_job(
+                {"sibling_key": g["sibling_key"], "cards": cards},
+                detail,
+                companies,
+                run_date,
+            )
+            jobs_out.append(job.to_dict())
+            if job.unresolved:
+                unresolved_out.append(
+                    {
+                        "posting_key": job.posting_key,
+                        "fields": job.unresolved,
+                        "title": job.title,
+                        "company": job.company,
+                        "card_locations": [c.location for c in cards],
+                        "description_text": detail.description_text[:6000],
+                    }
+                )
+
+        (run_dir / "jobs.json").write_text(json.dumps(jobs_out, indent=2))
+        (run_dir / "rejections.json").write_text(json.dumps(rejections_out, indent=2))
+        unresolved_path = run_dir / "unresolved.json"
+        unresolved_path.write_text(json.dumps(unresolved_out, indent=2))
+
+        summary = {
+            "run_id": run_id,
+            "jobs": len(jobs_out),
+            "rejected": len(rejections_out),
+            "rejected_by_rule": rejected_by_rule,
+            "not_fetched": not_fetched,
+            "unresolved": len(unresolved_out),
+            "unresolved_path": str(unresolved_path),
+        }
+        print(json.dumps(summary))
+        return 0
+    finally:
+        conn.close()
+
+
 def _not_implemented(args) -> int:
     print(json.dumps({"error": "not implemented"}))
     return 2
@@ -279,7 +388,7 @@ def main(argv=None) -> int:
 
     p_extract = sub.add_parser("extract")
     p_extract.add_argument("--run-id")
-    p_extract.set_defaults(func=_not_implemented)
+    p_extract.set_defaults(func=cmd_extract)
 
     p_apply = sub.add_parser("apply-extractions")
     p_apply.add_argument("--file")
