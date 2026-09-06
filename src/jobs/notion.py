@@ -14,8 +14,12 @@ from collections.abc import Iterator
 import httpx
 
 from .cache import _env_file
+from .extract import SOURCE_TYPE_LABELS
 from .extract import sibling_key as _sibling_key
 from .models import Job
+
+# The four readable Source Type option names check_schema asserts are present.
+SOURCE_TYPE_OPTIONS = set(SOURCE_TYPE_LABELS.values())
 
 log = logging.getLogger(__name__)
 
@@ -33,7 +37,8 @@ EXPECTED_SCHEMA = {
     "Seniority": "select",
     "Priority Score": "number",
     "H1B Sponsorship": "select",
-    "Source Type": "rich_text",
+    "Source Type": "select",
+    "Job Area": "multi_select",
     "Minimum Years Signal": "rich_text",
     "Minimum / Basic Qualifications": "rich_text",
     "Preferred Qualifications": "rich_text",
@@ -80,6 +85,10 @@ def select(v):
     return {"select": {"name": v}} if v else {"select": None}
 
 
+def multi_select(values):
+    return {"multi_select": [{"name": v} for v in values]}
+
+
 def number(v):
     return {"number": v}
 
@@ -106,7 +115,8 @@ def build_create_properties(job: Job, run_date: str) -> dict:
         "Seniority": select(job.seniority),
         "Priority Score": number(job.priority_score),
         "H1B Sponsorship": select(job.h1b_sponsorship),
-        "Source Type": text(job.source_type),
+        "Source Type": select(SOURCE_TYPE_LABELS.get(job.source_type, "Direct company")),
+        "Job Area": multi_select(job.areas),
         "Minimum Years Signal": text(job.min_years_signal),
         "Minimum / Basic Qualifications": text(job.minimum_qualifications[:1800]),
         "Preferred Qualifications": text(job.preferred_qualifications[:1800]),
@@ -296,12 +306,20 @@ class NotionClient:
                 missing.append(name)
             elif props[name].get("type") != want:
                 mismatched.append(f"{name}: want {want}, got {props[name].get('type')}")
-        if missing or mismatched:
+        st = props.get("Source Type", {})
+        if st.get("type") == "select":
+            have = {o.get("name") for o in st.get("select", {}).get("options", [])}
+            missing_opts = sorted(SOURCE_TYPE_OPTIONS - have)
+        else:
+            missing_opts = []
+        if missing or mismatched or missing_opts:
             parts = []
             if missing:
                 parts.append("missing: " + ", ".join(missing))
             if mismatched:
                 parts.append("type mismatch: " + "; ".join(mismatched))
+            if missing_opts:
+                parts.append("Source Type missing options: " + ", ".join(missing_opts))
             raise SchemaError(" | ".join(parts))
 
     def query_all(self) -> Iterator[dict]:

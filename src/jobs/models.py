@@ -55,6 +55,7 @@ class Job(_DictMixin):
     priority_score: int = 3
     h1b_sponsorship: str = "Unknown"
     source_type: str = ""
+    areas: list[str] = field(default_factory=list)
     min_years_signal: str = "Not explicit"
     min_years_lower: int | None = None
     minimum_qualifications: str = ""
