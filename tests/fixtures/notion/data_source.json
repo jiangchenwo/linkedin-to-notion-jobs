@@ -1,0 +1,31 @@
+{
+  "object": "data_source",
+  "id": "00000000-0000-0000-0000-000000000000",
+  "properties": {
+    "Job Title": {"id": "title", "name": "Job Title", "type": "title", "title": {}},
+    "Company": {"id": "c1", "name": "Company", "type": "rich_text", "rich_text": {}},
+    "Location": {"id": "c2", "name": "Location", "type": "rich_text", "rich_text": {}},
+    "Work Mode": {"id": "c3", "name": "Work Mode", "type": "select", "select": {"options": []}},
+    "Seniority": {"id": "c4", "name": "Seniority", "type": "select", "select": {"options": []}},
+    "Priority Score": {"id": "c5", "name": "Priority Score", "type": "number", "number": {"format": "number"}},
+    "H1B Sponsorship": {"id": "c6", "name": "H1B Sponsorship", "type": "select", "select": {"options": []}},
+    "Source Type": {"id": "c7", "name": "Source Type", "type": "rich_text", "rich_text": {}},
+    "Minimum Years Signal": {"id": "c8", "name": "Minimum Years Signal", "type": "rich_text", "rich_text": {}},
+    "Minimum / Basic Qualifications": {"id": "c9", "name": "Minimum / Basic Qualifications", "type": "rich_text", "rich_text": {}},
+    "Preferred Qualifications": {"id": "c10", "name": "Preferred Qualifications", "type": "rich_text", "rich_text": {}},
+    "Parsed Skills": {"id": "c11", "name": "Parsed Skills", "type": "rich_text", "rich_text": {}},
+    "Requirement Signal": {"id": "c12", "name": "Requirement Signal", "type": "rich_text", "rich_text": {}},
+    "Status": {"id": "c13", "name": "Status", "type": "formula", "formula": {"expression": "prop(\"Applied\")"}},
+    "Applied": {"id": "c14", "name": "Applied", "type": "checkbox", "checkbox": {}},
+    "Neglected": {"id": "c15", "name": "Neglected", "type": "checkbox", "checkbox": {}},
+    "Unavailable": {"id": "c16", "name": "Unavailable", "type": "date", "date": {}},
+    "Job URL": {"id": "c17", "name": "Job URL", "type": "url", "url": {}},
+    "External ID": {"id": "c18", "name": "External ID", "type": "rich_text", "rich_text": {}},
+    "Posting Key": {"id": "c19", "name": "Posting Key", "type": "rich_text", "rich_text": {}},
+    "Source": {"id": "c20", "name": "Source", "type": "select", "select": {"options": []}},
+    "Date Posted": {"id": "c21", "name": "Date Posted", "type": "date", "date": {}},
+    "First Seen": {"id": "c22", "name": "First Seen", "type": "date", "date": {}},
+    "Last Seen": {"id": "c23", "name": "Last Seen", "type": "date", "date": {}},
+    "Notes": {"id": "c24", "name": "Notes", "type": "rich_text", "rich_text": {}}
+  }
+}

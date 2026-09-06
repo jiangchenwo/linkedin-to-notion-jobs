@@ -113,44 +113,87 @@ def test_fetch_success_end_to_end(data_dir, monkeypatch, capsys):
     assert stages == {"card"}
 
 
-def test_fetch_skips_known_detail(data_dir, monkeypatch, capsys):
-    install_client(monkeypatch)
+def _seed_job(data_dir, posting_key, job_ids, company, title, *, date_posted,
+              last_seen, locations, notion_last_seen):
+    from jobs.extract import sibling_key
 
-    # Pre-seed a prior successful run: a sighting for one group's lowest id at
-    # the same date the card carries, plus its raw detail file already on disk.
-    from jobs.models import Card
-
-    prior_card = Card(
-        job_id="4000000001",
-        title="AI Engineer 1",
-        company="Acme Corp 1",
-        location="New York, NY",
-        date_posted="2026-09-05",
-        url="https://www.linkedin.com/jobs/view/4000000001/",
-        keyword="AI engineer",
-    )
     conn = cache.connect(str(data_dir / "jobs.sqlite3"))
-    cache.start_run(conn, "2026-09-04T000000", "past_24h")
-    cache.record_sighting(conn, prior_card, "2026-09-04T000000")
-    cache.finish_run(conn, "2026-09-04T000000", "success", {})
+    cache.insert_job_row(conn, {
+        "posting_key": posting_key,
+        "page_id": "pg-seed",
+        "sibling_key": sibling_key(company, title),
+        "title": title,
+        "company": company,
+        "locations": locations,
+        "job_ids": job_ids,
+        "date_posted": date_posted,
+        "first_seen": "2026-07-01",
+        "last_seen": last_seen,
+        "notion_last_seen": notion_last_seen,
+        "applied": 0,
+        "neglected": 0,
+        "origin": "bootstrap",
+    })
     conn.close()
 
-    details = data_dir / "details"
-    details.mkdir(parents=True, exist_ok=True)
-    marker = "<!-- prior fetch -->"
-    (details / "4000000001.html").write_text(marker)
 
+def test_fetch_known_id_newer_date_refreshes_without_detail(data_dir, monkeypatch, capsys):
+    install_client(monkeypatch)
+    _seed_job(
+        data_dir, "linkedin:4000000001", ["4000000001"], "Acme Corp 1", "AI Engineer 1",
+        date_posted="2026-09-01", last_seen="2026-09-01", locations=["New York, NY"],
+        notion_last_seen="2026-09-01",
+    )
     rc = cli.main(["fetch", "--date-window", "past_24h"])
     assert rc == 0
-
     summary = _last_json(capsys)
-    assert summary["details_skipped"] >= 1
-    # the known group's raw detail is reused, not refetched
-    assert (details / "4000000001.html").read_text() == marker
+    assert summary["refreshes"] >= 1 and summary["details_skipped"] >= 1
 
-    groups = json.loads((data_dir / "runs" / summary["run_id"] / "cards.json").read_text())
+    run_dir = data_dir / "runs" / summary["run_id"]
+    refreshes = json.loads((run_dir / "refreshes.json").read_text())
+    entry = next(r for r in refreshes if r["posting_key"] == "linkedin:4000000001")
+    assert entry["date_posted"] == "2026-09-05"
+
+    groups = json.loads((run_dir / "cards.json").read_text())
+    assert all(g["detail_job_id"] != "4000000001" for g in groups)
+    assert not (data_dir / "details" / "4000000001.html").exists()
+
+
+def test_fetch_known_sibling_new_city_refreshes(data_dir, monkeypatch, capsys):
+    install_client(monkeypatch)
+    # a prior posting of the same role in a different city, seen 4 days ago
+    _seed_job(
+        data_dir, "linkedin:3999999999", ["3999999999"], "Acme Corp 1", "AI Engineer 1",
+        date_posted="2026-09-05", last_seen="2026-09-01", locations=["Boston, MA"],
+        notion_last_seen="2026-09-05",
+    )
+    rc = cli.main(["fetch", "--date-window", "past_24h"])
+    assert rc == 0
+    summary = _last_json(capsys)
+    run_dir = data_dir / "runs" / summary["run_id"]
+    refreshes = json.loads((run_dir / "refreshes.json").read_text())
+    entry = next(r for r in refreshes if r["posting_key"] == "linkedin:3999999999")
+    assert "New York, NY" in entry["new_locations"]
+    assert "4000000001" in entry["new_job_ids"]
+
+
+def test_fetch_known_sibling_stale_falls_back_to_detail(data_dir, monkeypatch, capsys):
+    install_client(monkeypatch)
+    # same role, but last seen far outside the 30-day window
+    _seed_job(
+        data_dir, "linkedin:3999999999", ["3999999999"], "Acme Corp 1", "AI Engineer 1",
+        date_posted="2026-06-01", last_seen="2026-07-01", locations=["Boston, MA"],
+        notion_last_seen="2026-07-01",
+    )
+    rc = cli.main(["fetch", "--date-window", "past_24h"])
+    assert rc == 0
+    summary = _last_json(capsys)
+    run_dir = data_dir / "runs" / summary["run_id"]
+    groups = json.loads((run_dir / "cards.json").read_text())
     known = next(g for g in groups if g["detail_job_id"] == "4000000001")
     assert known["detail_path"].endswith("4000000001.html")
+    refreshes = json.loads((run_dir / "refreshes.json").read_text())
+    assert all(r["posting_key"] != "linkedin:3999999999" for r in refreshes)
 
 
 def test_fetch_partial_when_detail_blocked(data_dir, monkeypatch, capsys):
@@ -252,3 +295,49 @@ def test_extract_missing_cards_exits_2(data_dir, capsys):
     rc = cli.main(["extract"])
     assert rc == 2
     assert "error" in _last_json(capsys)
+
+
+class _FakeNotion:
+    def __init__(self, *a, **k):
+        pass
+
+    def check_schema(self):
+        pass
+
+    def query_by_key(self, key):
+        return None
+
+
+def test_sync_dry_run_plans_without_writing(data_dir, monkeypatch, capsys):
+    import jobs.notion as notion_mod
+
+    monkeypatch.setattr(notion_mod, "NotionClient", _FakeNotion)
+
+    run_id = "2026-09-05T000000"
+    run_dir = data_dir / "runs" / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    job = {
+        "posting_key": "linkedin:4000000001",
+        "job_ids": ["4000000001"],
+        "sibling_key": "beta labs::ml engineer",
+        "title": "ML Engineer",
+        "company": "Beta Labs",
+        "locations": ["Austin, TX"],
+        "date_posted": "2026-09-05",
+        "url": "https://www.linkedin.com/jobs/view/4000000001/",
+    }
+    (run_dir / "jobs.json").write_text(json.dumps([job]))
+    (run_dir / "refreshes.json").write_text("[]")
+    (data_dir / "runs" / "latest").write_text(run_id)
+
+    rc = cli.main(["sync", "--dry-run"])
+    assert rc == 0
+    summary = _last_json(capsys)
+    assert summary["planned_create"] == 1
+    assert summary["created"] == 0
+    assert not (run_dir / "summary.json").exists()
+
+    conn = cache.connect(str(data_dir / "jobs.sqlite3"))
+    n = conn.execute("SELECT count(*) AS n FROM sync_ops").fetchone()["n"]
+    conn.close()
+    assert n == 0

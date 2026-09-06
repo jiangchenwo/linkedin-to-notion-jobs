@@ -12,11 +12,11 @@ import traceback
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-from . import cache
+from . import cache, sync
 from .extract import build_job, canon, min_years, sibling_key
 from .filters import card_stage, detail_stage
 from .linkedin import Blocked, BudgetExhausted, GuestClient, load_keywords, parse_detail
-from .models import Card
+from .models import Card, Refresh
 
 log = logging.getLogger("jobs")
 
@@ -144,6 +144,44 @@ def _group_siblings(cards):
     return out
 
 
+def _build_refresh(known: dict, cards, run_date_iso: str) -> Refresh:
+    """A Refresh capturing what this run's cards add to a known job: cities and
+    IDs not already recorded, and the newest repost date."""
+    known_locs = json.loads(known["locations"])
+    have_locs = {loc.lower() for loc in known_locs}
+    known_ids = set(json.loads(known["job_ids"]))
+    new_locations: list[str] = []
+    for c in cards:
+        if c.location and c.location.lower() not in have_locs:
+            new_locations.append(c.location)
+            have_locs.add(c.location.lower())
+    new_job_ids = [c.job_id for c in cards if c.job_id not in known_ids]
+    date_posted = max([known["date_posted"], *[c.date_posted for c in cards]])
+    return Refresh(
+        posting_key=known["posting_key"],
+        page_id=known["page_id"],
+        date_posted=date_posted,
+        new_locations=new_locations,
+        new_job_ids=new_job_ids,
+    )
+
+
+def _refresh_is_meaningful(known: dict, refresh: Refresh, run_date) -> bool:
+    """Worth an entry in refreshes.json: the date advanced, a city or ID was
+    appended, or Notion's Last Seen is unset or older than 7 days."""
+    if refresh.date_posted > known["date_posted"]:
+        return True
+    if refresh.new_locations or refresh.new_job_ids:
+        return True
+    nls = known["notion_last_seen"]
+    if not nls:
+        return True
+    try:
+        return (run_date - date.fromisoformat(nls[:10])) > timedelta(days=7)
+    except ValueError:
+        return True
+
+
 def cmd_fetch(args) -> int:
     conn = cache.connect()
     run_date = _today()
@@ -192,28 +230,38 @@ def cmd_fetch(args) -> int:
                 kept.append(card)
 
         groups = _group_siblings(kept)
+        run_date_iso = run_date.isoformat()
+        window_start = (run_date - timedelta(days=30)).isoformat()
         details_fetched = 0
         details_skipped = 0
+        refresh_count = 0
+        refreshes_out: list[dict] = []
         groups_out = []
         for g in groups:
-            lowest = g["lowest"]
-            lowest_card = g["cards"][0]
-            path = _details_dir() / f"{lowest}.html"
-            prior = cache.latest_sighting(conn, lowest)
-            already = (
-                prior is not None
-                and prior["date_posted"] == lowest_card.date_posted
-                and path.exists()
-            )
-            detail_path = None
-            if already:
+            cards = g["cards"]
+            lowest = cards[0]
+            known = None
+            for c in cards:
+                known = cache.find_job_by_id(conn, c.job_id)
+                if known:
+                    break
+            if known is None:
+                known = cache.find_job_by_sibling(conn, g["sibling_key"], window_start)
+            if known is not None:
                 details_skipped += 1
-                detail_path = str(path)
-            elif not blocked and (
+                refresh = _build_refresh(known, cards, run_date_iso)
+                if _refresh_is_meaningful(known, refresh, run_date):
+                    refreshes_out.append(refresh.to_dict())
+                    refresh_count += 1
+                cache.mark_seen(conn, known["posting_key"], run_date_iso)
+                continue
+            path = _details_dir() / f"{lowest.job_id}.html"
+            detail_path = None
+            if not blocked and (
                 args.max_details is None or details_fetched < args.max_details
             ):
                 try:
-                    _, raw = client.detail(lowest)
+                    _, raw = client.detail(lowest.job_id)
                     path.parent.mkdir(parents=True, exist_ok=True)
                     path.write_text(raw)
                     details_fetched += 1
@@ -225,9 +273,9 @@ def cmd_fetch(args) -> int:
             groups_out.append(
                 {
                     "sibling_key": g["sibling_key"],
-                    "posting_key": f"linkedin:{lowest}",
-                    "cards": [c.to_dict() for c in g["cards"]],
-                    "detail_job_id": lowest,
+                    "posting_key": f"linkedin:{lowest.job_id}",
+                    "cards": [c.to_dict() for c in cards],
+                    "detail_job_id": lowest.job_id,
                     "detail_path": detail_path,
                 }
             )
@@ -236,7 +284,7 @@ def cmd_fetch(args) -> int:
             cache.record_sighting(conn, card, run_id)
 
         (run_dir / "cards.json").write_text(json.dumps(groups_out, indent=2))
-        (run_dir / "refreshes.json").write_text("[]")
+        (run_dir / "refreshes.json").write_text(json.dumps(refreshes_out, indent=2))
 
         status = "partial" if blocked else "success"
         summary = {
@@ -244,7 +292,7 @@ def cmd_fetch(args) -> int:
             "date_window": date_window,
             "cards_seen": cards_seen,
             "cards_kept": len(kept),
-            "refreshes": 0,
+            "refreshes": refresh_count,
             "details_fetched": details_fetched,
             "details_skipped": details_skipped,
             "blocked": blocked,
@@ -370,6 +418,206 @@ def cmd_extract(args) -> int:
         conn.close()
 
 
+def _build_run_summary(conn, run_id, run_dir, sync_result, run_date) -> dict:
+    """Merge the fetch summary (from the runs table), the extract outputs (from
+    run files), and the sync counts into a RunSummary-shaped dict."""
+    from .models import RunSummary
+
+    row = conn.execute(
+        "SELECT started_at, date_window, summary_json FROM runs WHERE run_id = ?",
+        (run_id,),
+    ).fetchone()
+    fetch = {}
+    if row and row["summary_json"]:
+        try:
+            fetch = json.loads(row["summary_json"])
+        except ValueError:
+            fetch = {}
+
+    def _count(name):
+        p = run_dir / name
+        try:
+            return len(json.loads(p.read_text()))
+        except (OSError, ValueError):
+            return 0
+
+    details_rejected: dict[str, int] = {}
+    try:
+        for r in json.loads((run_dir / "rejections.json").read_text()):
+            rule = r.get("rule", "")
+            details_rejected[rule] = details_rejected.get(rule, 0) + 1
+    except (OSError, ValueError):
+        pass
+
+    summary = RunSummary(
+        run_id=run_id,
+        started_at=(row["started_at"] if row else "") or "",
+        finished_at=datetime.now(timezone.utc).isoformat(),
+        status=sync_result["status"],
+        date_window=fetch.get("date_window", "") if isinstance(fetch, dict) else "",
+        cards_seen=fetch.get("cards_seen", 0) if isinstance(fetch, dict) else 0,
+        cards_rejected_by_rule=fetch.get("cards_rejected_by_rule", {}) if isinstance(fetch, dict) else {},
+        details_fetched=fetch.get("details_fetched", 0) if isinstance(fetch, dict) else 0,
+        details_rejected_by_rule=details_rejected,
+        jobs_new=_count("jobs.json"),
+        refreshes=_count("refreshes.json"),
+        unresolved=_count("unresolved.json"),
+        notion_created=sync_result["created"],
+        notion_updated=sync_result["updated"],
+        notion_failed=sync_result["failed"],
+        errors=fetch.get("errors", []) if isinstance(fetch, dict) else [],
+        log_path=str(_logs_dir() / "jobs.log"),
+    )
+    return summary.to_dict()
+
+
+def cmd_sync(args) -> int:
+    from .notion import AuthError, NotionClient, NotionError, SchemaError
+
+    run_id = _resolve_run_id(args)
+    if not run_id:
+        print(json.dumps({"error": "no run id and no data/runs/latest"}))
+        return 2
+    run_dir = _runs_dir() / run_id
+    run_date = _today().isoformat()
+
+    if not args.dry_run and not acquire_lock():
+        print(json.dumps({"error": "another run is active"}))
+        return 2
+
+    conn = cache.connect()
+    try:
+        client = NotionClient()
+        client.check_schema()
+        ops = sync.plan(
+            run_id, conn, run_date, run_dir,
+            client=None if args.dry_run else client,
+            journal_ops=not args.dry_run,
+        )
+        result = sync.apply(ops, client, conn, run_id, run_date, args.dry_run)
+        if not args.dry_run:
+            merged = _build_run_summary(conn, run_id, run_dir, result, run_date)
+            (run_dir / "summary.json").write_text(json.dumps(merged, indent=2))
+            cache.finish_run(conn, run_id, result["status"], merged)
+        out = {"run_id": run_id}
+        out.update({k: result[k] for k in (
+            "planned_create", "planned_update", "created", "updated", "failed", "status")})
+        print(json.dumps(out))
+        return {"success": 0, "partial": 1}.get(result["status"], 2)
+    except (AuthError, SchemaError, NotionError) as e:
+        log.error("sync failed: %s", e)
+        print(json.dumps({"error": str(e), "status": "failed"}))
+        return 2
+    except Exception as e:  # noqa: BLE001
+        log.error("sync failed: %s\n%s", e, traceback.format_exc())
+        print(json.dumps({"error": str(e), "status": "failed"}))
+        return 2
+    finally:
+        conn.close()
+        if not args.dry_run:
+            release_lock()
+
+
+def cmd_bootstrap(args) -> int:
+    from .notion import AuthError, NotionClient, NotionError, SchemaError, page_to_row
+
+    conn = cache.connect()
+    try:
+        if cache.count_jobs(conn) > 0 and not args.force:
+            print(json.dumps({"error": "jobs table is not empty; use --force to reload"}))
+            return 2
+        client = NotionClient()
+        run_date = _today().isoformat()
+        rows_read = rows_inserted = rows_skipped = 0
+        for page in client.query_all():
+            rows_read += 1
+            row = page_to_row(page, run_date)
+            if row is None:
+                rows_skipped += 1
+                continue
+            cache.insert_job_row(conn, row)
+            rows_inserted += 1
+        print(json.dumps({
+            "rows_read": rows_read,
+            "rows_inserted": rows_inserted,
+            "rows_skipped_no_key": rows_skipped,
+        }))
+        return 0
+    except (AuthError, SchemaError, NotionError) as e:
+        print(json.dumps({"error": str(e)}))
+        return 2
+    finally:
+        conn.close()
+
+
+def cmd_resync(args) -> int:
+    from .notion import AuthError, NotionClient, NotionError, page_to_row
+
+    conn = cache.connect()
+    try:
+        client = NotionClient()
+        run_date = _today().isoformat()
+        notion_rows: dict[str, dict] = {}
+        for page in client.query_all():
+            row = page_to_row(page, run_date)
+            if row:
+                notion_rows[row["posting_key"]] = row
+        cache_rows = {r["posting_key"]: r for r in cache.all_jobs(conn)}
+
+        added = [k for k in notion_rows if k not in cache_rows]
+        removed = [k for k, r in cache_rows.items() if r.get("page_id") and k not in notion_rows]
+        changed = []
+        for k, nr in notion_rows.items():
+            cr = cache_rows.get(k)
+            if cr is None:
+                continue
+            if (bool(cr["applied"]) != bool(nr["applied"])
+                    or bool(cr["neglected"]) != bool(nr["neglected"])
+                    or cr["date_posted"] != nr["date_posted"]
+                    or (cr["page_id"] or "") != (nr["page_id"] or "")):
+                changed.append(k)
+
+        for k in added:
+            cache.insert_job_row(conn, notion_rows[k])
+        for k in removed:
+            if cache_rows[k].get("origin") == "bootstrap":
+                cache.delete_job(conn, k)
+        for k in changed:
+            cache.insert_job_row(conn, notion_rows[k])
+
+        print(json.dumps({"added": len(added), "removed": len(removed), "changed": len(changed)}))
+        return 0
+    except (AuthError, NotionError) as e:
+        print(json.dumps({"error": str(e)}))
+        return 2
+    finally:
+        conn.close()
+
+
+def cmd_auth(args) -> int:
+    from .notion import AuthError, NotionClient, NotionError, set_token
+
+    if args.action == "set-token":
+        import getpass
+
+        token = getpass.getpass("Notion integration token: ")
+        if not token:
+            print(json.dumps({"stored": False, "error": "empty token"}))
+            return 2
+        set_token(token)
+        print(json.dumps({"stored": True}))
+        return 0
+
+    try:
+        client = NotionClient()
+        me = client.me()
+        print(json.dumps({"ok": True, "bot_name": me.get("name")}))
+        return 0
+    except (AuthError, NotionError) as e:
+        print(json.dumps({"ok": False, "error": str(e)}))
+        return 2
+
+
 def _not_implemented(args) -> int:
     print(json.dumps({"error": "not implemented"}))
     return 2
@@ -398,19 +646,21 @@ def main(argv=None) -> int:
     p_sync = sub.add_parser("sync")
     p_sync.add_argument("--run-id")
     p_sync.add_argument("--dry-run", action="store_true")
-    p_sync.set_defaults(func=_not_implemented)
+    p_sync.set_defaults(func=cmd_sync)
 
     p_daily = sub.add_parser("daily")
     p_daily.add_argument("--dry-run", action="store_true")
     p_daily.add_argument("--date-window", choices=["past_24h", "past_week"])
     p_daily.set_defaults(func=_not_implemented)
 
-    sub.add_parser("bootstrap").set_defaults(func=_not_implemented)
-    sub.add_parser("resync").set_defaults(func=_not_implemented)
+    p_bootstrap = sub.add_parser("bootstrap")
+    p_bootstrap.add_argument("--force", action="store_true")
+    p_bootstrap.set_defaults(func=cmd_bootstrap)
+    sub.add_parser("resync").set_defaults(func=cmd_resync)
 
     p_auth = sub.add_parser("auth")
     p_auth.add_argument("action", choices=["set-token", "check"])
-    p_auth.set_defaults(func=_not_implemented)
+    p_auth.set_defaults(func=cmd_auth)
 
     p_summary = sub.add_parser("summary")
     p_summary.add_argument("--run-id")

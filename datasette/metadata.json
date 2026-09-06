@@ -1,0 +1,16 @@
+{
+  "databases": {
+    "jobs": {
+      "queries": {
+        "daily_jobs": {
+          "sql": "select j.date_posted, j.first_seen, j.title, j.company, j.locations, j.job_ids, j.posting_key, case when j.page_id is null then '' else 'https://www.notion.so/' || replace(j.page_id, '-', '') end as notion_url from jobs j where j.first_seen = coalesce(:day, (select max(first_seen) from jobs)) order by j.date_posted desc",
+          "title": "Jobs first seen on a day (defaults to the latest day)"
+        },
+        "rejections_by_day": {
+          "sql": "select run_id, stage, rule, count(*) as n from rejections where run_id like coalesce(:day, (select max(run_id) from runs)) || '%' group by 1,2,3 order by 1 desc, 4 desc",
+          "title": "Why cards and details were rejected on a day"
+        }
+      }
+    }
+  }
+}

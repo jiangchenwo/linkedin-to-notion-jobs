@@ -1,0 +1,39 @@
+{
+  "object": "list",
+  "results": [
+    {
+      "object": "page",
+      "id": "aaaaaaaa-0000-0000-0000-000000000040",
+      "properties": {
+        "Job Title": {"type": "title", "title": [{"plain_text": "ML Engineer"}]},
+        "Company": {"type": "rich_text", "rich_text": [{"plain_text": "Delta Systems"}]},
+        "Location": {"type": "rich_text", "rich_text": [{"plain_text": "Seattle, WA"}]},
+        "External ID": {"type": "rich_text", "rich_text": [{"plain_text": "4000000040"}]},
+        "Posting Key": {"type": "rich_text", "rich_text": [{"plain_text": "linkedin:4000000040"}]},
+        "Date Posted": {"type": "date", "date": {"start": "2026-09-02"}},
+        "First Seen": {"type": "date", "date": {"start": "2026-09-02"}},
+        "Last Seen": {"type": "date", "date": {"start": "2026-09-02"}},
+        "Applied": {"type": "checkbox", "checkbox": false},
+        "Neglected": {"type": "checkbox", "checkbox": false}
+      }
+    },
+    {
+      "object": "page",
+      "id": "aaaaaaaa-0000-0000-0000-0000000000ff",
+      "properties": {
+        "Job Title": {"type": "title", "title": [{"plain_text": "Ghost Role"}]},
+        "Company": {"type": "rich_text", "rich_text": [{"plain_text": "Orphan Co"}]},
+        "Location": {"type": "rich_text", "rich_text": []},
+        "External ID": {"type": "rich_text", "rich_text": []},
+        "Posting Key": {"type": "rich_text", "rich_text": []},
+        "Date Posted": {"type": "date", "date": null},
+        "First Seen": {"type": "date", "date": null},
+        "Last Seen": {"type": "date", "date": null},
+        "Applied": {"type": "checkbox", "checkbox": false},
+        "Neglected": {"type": "checkbox", "checkbox": false}
+      }
+    }
+  ],
+  "has_more": false,
+  "next_cursor": null
+}
