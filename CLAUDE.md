@@ -1,4 +1,4 @@
-# job-listings-scraper
+# linkedin-to-notion-jobs
 
 A daily pipeline that fetches early-career AI-engineer jobs from LinkedIn's
 public guest endpoints and syncs them to a Notion database. Every deterministic

@@ -1,4 +1,4 @@
-# job-listings-scraper
+# linkedin-to-notion-jobs
 
 A daily pipeline that pulls early-career jobs from LinkedIn's public guest
 endpoints (no login, no browser) and syncs them to a Notion database via REST.
@@ -147,8 +147,8 @@ heuristics; listed companies get `"Startup (listed)"` or `"Reliable (listed)"`.
 
 **[Duplicate this Notion database template](https://app.notion.com/p/3d3bf3e89e9e80fb8bf2f7da2afda52e?v=04cbf3e89e9e83edb2a388bc7975a5c3&source=copy_link)**
 
-The repo owner publishes the template via Share → Publish → "Duplicate as
-template" and replaces the placeholder above with the published URL.
+The link above opens the published database with "Duplicate as template"
+enabled, so it copies into your own workspace as a fresh, empty database.
 
 ### Property schema
 
@@ -263,7 +263,7 @@ launchctl load ~/Library/LaunchAgents/com.example.daily-jobs.plist
 <plist version="1.0">
 <dict>
   <key>Label</key><string>com.example.daily-jobs</string>
-  <key>WorkingDirectory</key><string>/Users/YOU/job-listings-scraper</string>
+  <key>WorkingDirectory</key><string>/Users/YOU/linkedin-to-notion-jobs</string>
   <key>ProgramArguments</key>
   <array>
     <string>/bin/zsh</string>
@@ -272,8 +272,8 @@ launchctl load ~/Library/LaunchAgents/com.example.daily-jobs.plist
   </array>
   <key>StartCalendarInterval</key>
   <dict><key>Hour</key><integer>8</integer><key>Minute</key><integer>0</integer></dict>
-  <key>StandardErrorPath</key><string>/Users/YOU/job-listings-scraper/data/logs/launchd.err</string>
-  <key>StandardOutPath</key><string>/Users/YOU/job-listings-scraper/data/logs/launchd.out</string>
+  <key>StandardErrorPath</key><string>/Users/YOU/linkedin-to-notion-jobs/data/logs/launchd.err</string>
+  <key>StandardOutPath</key><string>/Users/YOU/linkedin-to-notion-jobs/data/logs/launchd.out</string>
 </dict>
 </plist>
 ```
