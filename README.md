@@ -58,6 +58,7 @@ Requires [uv](https://docs.astral.sh/uv/) and Python 3.12.
 | `jobs notify` | Send the macOS notification for the last run |
 | `jobs bootstrap [--force]` | Load the whole Notion database into the cache |
 | `jobs resync` | Reconcile the cache against Notion (added/removed/changed) |
+| `jobs backfill [--dry-run] [--limit N]` | One-off: relabel Source Type and fill Job Area on existing rows |
 | `jobs auth set-token \| check` | Manage the Keychain token |
 
 For the scheduled run and the haiku fallback, Claude Code drives the CLI through

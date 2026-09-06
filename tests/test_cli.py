@@ -393,6 +393,67 @@ def test_apply_extractions_missing_file_exits_2(data_dir, capsys):
     assert "error" in _last_json(capsys)
 
 
+def _backfill_page(pid, source_type_name, area_opts, ext_id):
+    def rt(v):
+        return {"type": "rich_text", "rich_text": [{"text": {"content": v}, "plain_text": v}]}
+
+    return {
+        "id": pid,
+        "properties": {
+            "Source Type": {"type": "select", "select": {"name": source_type_name} if source_type_name else None},
+            "Job Area": {"type": "multi_select", "multi_select": [{"name": a} for a in area_opts]},
+            "External ID": rt(ext_id),
+            "Posting Key": rt(f"linkedin:{ext_id}"),
+            "Job Title": {"type": "title", "title": [{"text": {"content": "ML Engineer"}, "plain_text": "ML Engineer"}]},
+        },
+    }
+
+
+def test_backfill_dry_run_then_live(data_dir, monkeypatch, capsys):
+    import jobs.notion as notion_mod
+
+    details = data_dir / "details"
+    details.mkdir(parents=True, exist_ok=True)
+    (details / "4000000002.html").write_text(read_fixture("detail_junior.html"))
+
+    pages = [
+        _backfill_page("pg1", "LinkedIn", [], "3999999998"),       # off-label source, no detail
+        _backfill_page("pg2", "Direct company", [], "4000000002"),  # empty area, has detail
+        _backfill_page("pg3", "Direct company", [], "3999999997"),  # empty area, no detail
+    ]
+    patches = []
+
+    class Fake:
+        def __init__(self, *a, **k):
+            pass
+
+        def check_schema(self):
+            pass
+
+        def query_all(self):
+            return iter(pages)
+
+        def update_page(self, page_id, props):
+            patches.append((page_id, props))
+            return {}
+
+    monkeypatch.setattr(notion_mod, "NotionClient", Fake)
+
+    rc = cli.main(["backfill", "--dry-run"])
+    assert rc == 0
+    out = _last_json(capsys)
+    assert (out["source_type_updated"], out["job_area_updated"], out["skipped_no_detail"]) == (1, 1, 1)
+    assert patches == []
+
+    rc = cli.main(["backfill"])
+    assert rc == 0
+    assert len(patches) == 2
+    patched = {pid for pid, _ in patches}
+    assert patched == {"pg1", "pg2"}
+    assert "Source Type" in dict(patches)["pg1"]
+    assert "Job Area" in dict(patches)["pg2"]
+
+
 def test_daily_dry_run_returns_zero_and_prints_unresolved(data_dir, monkeypatch, capsys):
     import jobs.notion as notion_mod
 
