@@ -3,16 +3,19 @@ stderr and exactly one JSON object as the last line of stdout. Phase 1
 implements `fetch`; the rest are stubs until later phases."""
 
 import argparse
+import io
 import json
 import logging
 import os
+import re
 import sys
 import tomllib
 import traceback
+from contextlib import redirect_stdout
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-from . import cache, sync
+from . import cache, notify, sync
 from .extract import build_job, canon, min_years, sibling_key
 from .filters import card_stage, detail_stage
 from .linkedin import Blocked, BudgetExhausted, GuestClient, load_keywords, parse_detail
@@ -186,8 +189,9 @@ def cmd_fetch(args) -> int:
     conn = cache.connect()
     run_date = _today()
     date_window = _decide_window(conn, args.date_window)
+    held = getattr(args, "_locked", False)
 
-    if not acquire_lock():
+    if not held and not acquire_lock():
         print(json.dumps({"error": "another run is active"}))
         return 2
 
@@ -315,7 +319,8 @@ def cmd_fetch(args) -> int:
         print(json.dumps({"error": str(e), "status": "failed"}))
         return 2
     finally:
-        release_lock()
+        if not held:
+            release_lock()
         conn.close()
 
 
@@ -480,8 +485,9 @@ def cmd_sync(args) -> int:
         return 2
     run_dir = _runs_dir() / run_id
     run_date = _today().isoformat()
+    held = getattr(args, "_locked", False)
 
-    if not args.dry_run and not acquire_lock():
+    if not args.dry_run and not held and not acquire_lock():
         print(json.dumps({"error": "another run is active"}))
         return 2
 
@@ -514,7 +520,7 @@ def cmd_sync(args) -> int:
         return 2
     finally:
         conn.close()
-        if not args.dry_run:
+        if not args.dry_run and not held:
             release_lock()
 
 
@@ -618,9 +624,213 @@ def cmd_auth(args) -> int:
         return 2
 
 
-def _not_implemented(args) -> int:
-    print(json.dumps({"error": "not implemented"}))
-    return 2
+_LOCATION_CHARS_RE = re.compile(r"^[A-Za-z0-9 ,.;:/&()'\-]+$")
+_MIN_YEARS_RE = re.compile(r"^(\d{1,2}\+|\d{1,2}-\d{1,2}|(BS|MS|PhD)\+\d{1,2}|Not explicit)$")
+
+
+def _lower_from_signal(signal: str) -> int | None:
+    """The lower bound a min-years signal implies: the first integer in the
+    string, or None for 'Not explicit'."""
+    if signal == "Not explicit":
+        return None
+    m = re.search(r"\d+", signal)
+    return int(m.group()) if m else None
+
+
+def _valid_extraction_item(item) -> bool:
+    """A haiku extractions item is valid when it is an object keyed only by
+    posting_key / location / min_years_signal, carries a string posting_key and
+    at least one of the two value fields, and each present value is null or a
+    well-formed string (location charset and part lengths; min-years pattern)."""
+    if not isinstance(item, dict):
+        return False
+    if set(item) - {"posting_key", "location", "min_years_signal"}:
+        return False
+    if not isinstance(item.get("posting_key"), str) or not item["posting_key"]:
+        return False
+    if "location" not in item and "min_years_signal" not in item:
+        return False
+    for key in ("location", "min_years_signal"):
+        if key in item and not (item[key] is None or isinstance(item[key], str)):
+            return False
+    loc = item.get("location")
+    if isinstance(loc, str):
+        if len(loc) > 300 or not _LOCATION_CHARS_RE.match(loc):
+            return False
+        parts = [p.strip() for p in loc.split(";") if p.strip()]
+        if not parts or any(not (3 <= len(p) <= 60) for p in parts):
+            return False
+    mys = item.get("min_years_signal")
+    if isinstance(mys, str) and not _MIN_YEARS_RE.match(mys):
+        return False
+    return True
+
+
+def cmd_apply_extractions(args) -> int:
+    run_id = _resolve_run_id(args)
+    if not run_id:
+        print(json.dumps({"error": "no run id and no data/runs/latest"}))
+        return 2
+    try:
+        items = json.loads(Path(args.file).read_text())
+    except (OSError, ValueError, TypeError) as e:
+        print(json.dumps({"error": f"cannot read --file: {e}"}))
+        return 2
+    if not isinstance(items, list):
+        print(json.dumps({"error": "--file must be a JSON list"}))
+        return 2
+
+    run_dir = _runs_dir() / run_id
+    jobs_path = run_dir / "jobs.json"
+    try:
+        jobs = json.loads(jobs_path.read_text())
+    except (OSError, ValueError):
+        jobs = []
+    by_key = {j["posting_key"]: j for j in jobs}
+
+    applied = skipped_invalid = skipped_unknown = 0
+    for item in items:
+        if not _valid_extraction_item(item):
+            log.warning("apply-extractions: invalid item %r", item)
+            skipped_invalid += 1
+            continue
+        job = by_key.get(item["posting_key"])
+        if job is None:
+            skipped_unknown += 1
+            continue
+        unresolved = list(job.get("unresolved") or [])
+        did = False
+        loc = item.get("location")
+        if loc is not None and "location" in unresolved:
+            job["locations"] = [p.strip() for p in loc.split(";") if p.strip()]
+            unresolved.remove("location")
+            did = True
+        mys = item.get("min_years_signal")
+        if mys is not None and "min_years" in unresolved:
+            job["min_years_signal"] = mys
+            job["min_years_lower"] = _lower_from_signal(mys)
+            unresolved.remove("min_years")
+            did = True
+        job["unresolved"] = unresolved
+        if did:
+            applied += 1
+        else:
+            skipped_unknown += 1
+
+    jobs_path.write_text(json.dumps(jobs, indent=2))
+    print(json.dumps({
+        "run_id": run_id,
+        "applied": applied,
+        "skipped_invalid": skipped_invalid,
+        "skipped_unknown": skipped_unknown,
+    }))
+    return 0
+
+
+def _call_capturing(fn, ns) -> tuple[int, dict]:
+    """Run a subcommand in-process, capturing its stdout JSON line so `daily`
+    can read the numbers without the intermediate lines reaching the terminal."""
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = fn(ns)
+    lines = [ln for ln in buf.getvalue().splitlines() if ln.strip()]
+    result = {}
+    if lines:
+        try:
+            result = json.loads(lines[-1])
+        except ValueError:
+            result = {}
+    return rc, result
+
+
+def cmd_daily(args) -> int:
+    if not acquire_lock():
+        print(json.dumps({"error": "another run is active"}))
+        return 2
+    try:
+        run_id = getattr(args, "run_id", None) or datetime.now().strftime("%Y-%m-%dT%H%M%S")
+        window = getattr(args, "date_window", None)
+        dry_run = getattr(args, "dry_run", False)
+
+        fetch_ns = argparse.Namespace(
+            run_id=run_id, date_window=window, max_details=None, _locked=True
+        )
+        rc, result = _call_capturing(cmd_fetch, fetch_ns)
+        if rc != 0:
+            print(json.dumps(result or {"run_id": run_id, "status": "failed"}))
+            return rc
+
+        rc, extract_result = _call_capturing(cmd_extract, argparse.Namespace(run_id=run_id))
+        if rc != 0:
+            print(json.dumps(extract_result or {"run_id": run_id, "status": "failed"}))
+            return rc
+        unresolved = extract_result.get("unresolved", 0)
+
+        sync_ns = argparse.Namespace(run_id=run_id, dry_run=dry_run, _locked=True)
+        rc, sync_result = _call_capturing(cmd_sync, sync_ns)
+        out = {"run_id": run_id}
+        for k in ("planned_create", "planned_update", "created", "updated", "failed", "status"):
+            if k in sync_result:
+                out[k] = sync_result[k]
+        out["unresolved"] = unresolved
+        print(json.dumps(out))
+        return rc
+    finally:
+        release_lock()
+
+
+def _load_or_build_summary(run_id: str, run_dir: Path) -> dict | None:
+    """The run's summary.json if sync wrote one; otherwise a summary built from
+    the fetch/extract artifacts with status 'failed'; None if the run never got
+    past reading nothing."""
+    summary_path = run_dir / "summary.json"
+    if summary_path.exists():
+        try:
+            return json.loads(summary_path.read_text())
+        except ValueError:
+            pass
+    if (run_dir / "cards.json").exists():
+        conn = cache.connect()
+        try:
+            return _build_run_summary(
+                conn, run_id, run_dir,
+                {"status": "failed", "created": 0, "updated": 0, "failed": 0},
+                _today().isoformat(),
+            )
+        finally:
+            conn.close()
+    return None
+
+
+def cmd_summary(args) -> int:
+    run_id = _resolve_run_id(args)
+    if not run_id:
+        print(json.dumps({"error": "no run id and no data/runs/latest"}))
+        return 2
+    summary = _load_or_build_summary(run_id, _runs_dir() / run_id)
+    if summary is None:
+        print(json.dumps({"error": f"no summary for run {run_id}"}))
+        return 2
+    print(notify.format_summary(summary))
+    return 0
+
+
+def cmd_notify(args) -> int:
+    run_id = _resolve_run_id(args)
+    run_dir = _runs_dir() / run_id if run_id else None
+    summary = _load_or_build_summary(run_id, run_dir) if run_dir else None
+    if summary is None:
+        summary = {"status": "failed", "log_path": str(_logs_dir() / "jobs.log")}
+    status = summary.get("status", "failed")
+    body = (
+        f"{summary.get('notion_created', 0)} new, "
+        f"{summary.get('notion_updated', 0)} updated, "
+        f"{summary.get('notion_failed', 0)} failed. "
+        f"Log: {summary.get('log_path', '')}"
+    )
+    sent = notify.send_notification(f"Daily jobs: {status}", body)
+    print(json.dumps({"sent": sent}))
+    return 0
 
 
 def main(argv=None) -> int:
@@ -639,9 +849,9 @@ def main(argv=None) -> int:
     p_extract.set_defaults(func=cmd_extract)
 
     p_apply = sub.add_parser("apply-extractions")
-    p_apply.add_argument("--file")
+    p_apply.add_argument("--file", required=True)
     p_apply.add_argument("--run-id")
-    p_apply.set_defaults(func=_not_implemented)
+    p_apply.set_defaults(func=cmd_apply_extractions)
 
     p_sync = sub.add_parser("sync")
     p_sync.add_argument("--run-id")
@@ -651,7 +861,8 @@ def main(argv=None) -> int:
     p_daily = sub.add_parser("daily")
     p_daily.add_argument("--dry-run", action="store_true")
     p_daily.add_argument("--date-window", choices=["past_24h", "past_week"])
-    p_daily.set_defaults(func=_not_implemented)
+    p_daily.add_argument("--run-id")
+    p_daily.set_defaults(func=cmd_daily)
 
     p_bootstrap = sub.add_parser("bootstrap")
     p_bootstrap.add_argument("--force", action="store_true")
@@ -664,11 +875,11 @@ def main(argv=None) -> int:
 
     p_summary = sub.add_parser("summary")
     p_summary.add_argument("--run-id")
-    p_summary.set_defaults(func=_not_implemented)
+    p_summary.set_defaults(func=cmd_summary)
 
     p_notify = sub.add_parser("notify")
     p_notify.add_argument("--run-id")
-    p_notify.set_defaults(func=_not_implemented)
+    p_notify.set_defaults(func=cmd_notify)
 
     args = parser.parse_args(argv)
     return args.func(args)
