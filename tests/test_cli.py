@@ -341,3 +341,92 @@ def test_sync_dry_run_plans_without_writing(data_dir, monkeypatch, capsys):
     n = conn.execute("SELECT count(*) AS n FROM sync_ops").fetchone()["n"]
     conn.close()
     assert n == 0
+
+
+def test_apply_extractions_applies_and_skips(data_dir, capsys):
+    run_id = "2026-09-05T000000"
+    run_dir = data_dir / "runs" / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (data_dir / "runs" / "latest").write_text(run_id)
+    jobs = [
+        {"posting_key": "linkedin:1", "locations": ["United States"],
+         "min_years_signal": "Not explicit", "min_years_lower": None,
+         "unresolved": ["location", "min_years"]},
+        {"posting_key": "linkedin:2", "locations": ["Remote"],
+         "min_years_signal": "Not explicit", "min_years_lower": None,
+         "unresolved": ["min_years"]},
+    ]
+    (run_dir / "jobs.json").write_text(json.dumps(jobs))
+
+    items = [
+        {"posting_key": "linkedin:1", "location": "Austin, TX; Remote", "min_years_signal": "3+"},
+        {"posting_key": "linkedin:1", "location": "New York, NY", "extra": "x"},
+        {"posting_key": "linkedin:2", "min_years_signal": "banana"},
+        {"posting_key": "linkedin:999", "location": "Boston, MA"},
+        {"posting_key": "linkedin:2", "location": "Boston, MA"},
+    ]
+    f = run_dir / "extractions.json"
+    f.write_text(json.dumps(items))
+
+    rc = cli.main(["apply-extractions", "--file", str(f)])
+    assert rc == 0
+    out = _last_json(capsys)
+    assert out["applied"] == 1
+    assert out["skipped_invalid"] == 2
+    assert out["skipped_unknown"] == 2
+
+    merged = {j["posting_key"]: j for j in json.loads((run_dir / "jobs.json").read_text())}
+    j1 = merged["linkedin:1"]
+    assert j1["locations"] == ["Austin, TX", "Remote"]
+    assert j1["min_years_signal"] == "3+"
+    assert j1["min_years_lower"] == 3
+    assert j1["unresolved"] == []
+    # linkedin:2 had only min_years unresolved and got no valid min_years signal
+    assert merged["linkedin:2"]["unresolved"] == ["min_years"]
+
+
+def test_apply_extractions_missing_file_exits_2(data_dir, capsys):
+    (data_dir / "runs").mkdir(parents=True, exist_ok=True)
+    (data_dir / "runs" / "latest").write_text("r")
+    rc = cli.main(["apply-extractions", "--file", str(data_dir / "nope.json")])
+    assert rc == 2
+    assert "error" in _last_json(capsys)
+
+
+def test_daily_dry_run_returns_zero_and_prints_unresolved(data_dir, monkeypatch, capsys):
+    import jobs.notion as notion_mod
+
+    install_client(monkeypatch)
+    monkeypatch.setattr(notion_mod, "NotionClient", _FakeNotion)
+
+    rc = cli.main(["daily", "--dry-run", "--date-window", "past_24h"])
+    assert rc == 0
+    out = _last_json(capsys)
+    assert "unresolved" in out
+    assert out["status"] in {"success", "partial"}
+
+
+def test_daily_rejects_when_lock_held_by_live_pid(data_dir, capsys):
+    import os
+    import time
+
+    runs = data_dir / "runs"
+    runs.mkdir(parents=True, exist_ok=True)
+    (runs / ".lock").write_text(f"{os.getpid()} {time.time()}")
+
+    rc = cli.main(["daily", "--dry-run"])
+    assert rc == 2
+    assert _last_json(capsys)["error"] == "another run is active"
+
+
+def test_daily_overwrites_dead_pid_lock(data_dir, monkeypatch):
+    import jobs.notion as notion_mod
+
+    install_client(monkeypatch)
+    monkeypatch.setattr(notion_mod, "NotionClient", _FakeNotion)
+    runs = data_dir / "runs"
+    runs.mkdir(parents=True, exist_ok=True)
+    (runs / ".lock").write_text("999999 1.0")  # PID above macOS PID_MAX, ancient start
+
+    rc = cli.main(["daily", "--dry-run", "--date-window", "past_24h"])
+    assert rc == 0
