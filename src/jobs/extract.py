@@ -201,24 +201,51 @@ def qualifications(detail: Detail) -> tuple[str, str]:
     )
 
 
-# --- minimum years (Phase 2 plan table, not the old multi-signal parser) ---
+# --- minimum years (Phase 2 plan table, widened per plan step 18 to hit the
+# 80% parse target: written numbers, "(N)" repeats, and "or more") ---
+
+_WORD_NUM = {
+    "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+    "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+    "thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17,
+    "eighteen": 18, "nineteen": 19, "twenty": 20,
+}
+_NUM = r"(?:\d{1,2}|" + "|".join(_WORD_NUM) + r")"
+_YEARS = r"(?:years?|yrs?)"
+# "+" or "or more"/"or greater" both mean an open-ended lower bound.
+_PLUS_WORDS = r"(?:\+|or\s+more|or\s+greater|or\s+above)"
+# A parenthesised digit repeat: "Five (5) years".
+_PAREN = r"(?:\s*\(\d{1,2}\))?"
+_QUALIFIER = (
+    r"(?:professional|industry|relevant|hands[- ]on|work|working|software|"
+    r"engineering|programming|coding|development|developing|building|experience)"
+)
 
 _DEGREE = r"(?<![A-Za-z])(BS|BA|B\.S\.|Bachelor'?s?|MS|M\.S\.|Master'?s?|PhD|Ph\.D\.)"
 _P_DEGREE_YEARS = re.compile(
-    _DEGREE + r".{0,80}?(\d{1,2})\+?\s*(?:years?|yrs?)", re.I | re.S
+    _DEGREE + r".{0,80}?(" + _NUM + r")" + _PAREN + r"\s*\+?\s*" + _YEARS,
+    re.I | re.S,
 )
 _P_RANGE = re.compile(
-    r"(\d{1,2})\s*(?:-|–|to)\s*(\d{1,2})\s*\+?\s*(?:years?|yrs?)", re.I
-)
-_P_AT_LEAST = re.compile(
-    r"(?:at least|minimum of|minimum|min\.?)\s*(\d{1,2})\s*\+?\s*(?:years?|yrs?)", re.I
-)
-_P_PLUS = re.compile(r"(\d{1,2})\s*\+\s*(?:years?|yrs?)", re.I)
-_P_QUALIFIED = re.compile(
-    r"(\d{1,2})\s*(?:years?|yrs?)\s*(?:of\s+)?"
-    r"(?:professional|industry|relevant|hands-on|work|software|engineering|experience)",
+    r"(" + _NUM + r")\s*(?:-|–|to)\s*(" + _NUM + r")" + _PAREN + r"\s*[)\s]*\+?\s*" + _YEARS,
     re.I,
 )
+_P_AT_LEAST = re.compile(
+    r"(?:at least|minimum of|minimum|min\.?)\s*(" + _NUM + r")" + _PAREN
+    + r"\s*" + _PLUS_WORDS + r"?\s*" + _YEARS,
+    re.I,
+)
+_P_PLUS = re.compile(r"(" + _NUM + r")" + _PAREN + r"\s*" + _PLUS_WORDS + r"\s*" + _YEARS, re.I)
+_P_QUALIFIED = re.compile(
+    r"(" + _NUM + r")" + _PAREN + r"\s*" + _PLUS_WORDS + r"?\s*" + _YEARS
+    + r"['’]?\s*(?:of\s+)?" + _QUALIFIER,
+    re.I,
+)
+
+
+def _num(token: str) -> int:
+    token = token.lower()
+    return int(token) if token.isdigit() else _WORD_NUM[token]
 
 
 def _norm_degree(value: str) -> str:
@@ -232,27 +259,27 @@ def _norm_degree(value: str) -> str:
 
 def _scan_years(text: str) -> tuple[str, int | None]:
     for m in _P_DEGREE_YEARS.finditer(text):
-        n = int(m.group(2))
+        n = _num(m.group(2))
         if n > 20:
             continue
         return f"{_norm_degree(m.group(1))}+{n}", n
     for m in _P_RANGE.finditer(text):
-        n = int(m.group(1))
+        n = _num(m.group(1))
         if n > 20:
             continue
-        return f"{n}-{int(m.group(2))}", n
+        return f"{n}-{_num(m.group(2))}", n
     for m in _P_AT_LEAST.finditer(text):
-        n = int(m.group(1))
+        n = _num(m.group(1))
         if n > 20:
             continue
         return f"{n}+", n
     for m in _P_PLUS.finditer(text):
-        n = int(m.group(1))
+        n = _num(m.group(1))
         if n > 20:
             continue
         return f"{n}+", n
     for m in _P_QUALIFIED.finditer(text):
-        n = int(m.group(1))
+        n = _num(m.group(1))
         if n > 20:
             continue
         return f"{n}+", n
@@ -261,25 +288,32 @@ def _scan_years(text: str) -> tuple[str, int | None]:
 
 def min_years(detail: Detail) -> tuple[str, int | None]:
     """Return (signal, lower_bound). Scan the minimum-qualifications section
-    first; fall back to the whole description with the preferred section removed
-    so a "preferred: 8+ years" line never sets the minimum."""
+    first, then the whole description. LinkedIn headings are noisy, so a real
+    requirement often sits under a "preferred"-looking heading; scanning the
+    whole text recovers it."""
     secs = _requirement_sections(detail.description_text)
-    minimum_raw = secs["minimum"]
-    preferred_raw = secs["preferred"]
-    if minimum_raw:
-        signal, lower = _scan_years(minimum_raw)
+    if secs["minimum"]:
+        signal, lower = _scan_years(secs["minimum"])
         if signal != "Not explicit":
             return signal, lower
-    text = detail.description_text
-    if preferred_raw and preferred_raw in text:
-        text = text.replace(preferred_raw, " ")
-    return _scan_years(text)
+    return _scan_years(detail.description_text)
 
 
 # --- location ---
 
 _LOCATION_LINE_RE = re.compile(r"(?i)^\s*locations?\s*[:\-]\s*(.+)$")
 _STATE_RE = re.compile(r"^[A-Z]{2}$")
+_US_SUFFIX_RE = re.compile(r",?\s*United States$", re.I)
+_METRO_SUFFIX_RE = re.compile(r"\s+Metropolitan Area$", re.I)
+
+
+def _normalize_location(loc: str) -> str:
+    """Drop LinkedIn's low-information suffixes so a real place survives:
+    "New York, United States" -> "New York", "X Metropolitan Area" -> "X".
+    A bare "United States" has nothing to keep, so it stays as is."""
+    loc = loc.strip()
+    stripped = _METRO_SUFFIX_RE.sub("", _US_SUFFIX_RE.sub("", loc)).strip()
+    return stripped or loc
 
 
 def _split_locations(capture: str) -> list[str]:
@@ -302,7 +336,7 @@ def location(cards: list[Card], detail: Detail) -> list[str]:
     out: list[str] = []
     seen: set[str] = set()
     for card in cards:
-        loc = (card.location or "").strip()
+        loc = _normalize_location(card.location or "")
         if loc and loc.lower() not in seen:
             seen.add(loc.lower())
             out.append(loc)
