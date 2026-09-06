@@ -1,0 +1,91 @@
+# Example profile: early-career data engineer.
+# Differs from the default: data-engineering keywords and relevance vocabulary;
+# [skills] gains dbt and Snowflake; the areas are ETL / Warehousing / Streaming /
+# Data Platform with a "General Data" default. Copy this over data/keywords.toml.
+
+keywords = [
+  "new grad data engineer",
+  "entry level data engineer",
+  "junior data engineer",
+  "analytics engineer",
+  "ETL engineer",
+  "data engineer",
+]
+
+[search]
+location = "United States"
+f_JT = "F"
+f_E = "2,3,4"
+sortBy = "DD"
+max_pages = 10
+f_TPR_past_24h = "r86400"
+f_TPR_past_week = "r604800"
+
+[filters]
+exclude_title_terms = [
+  "senior", "sr", "staff", "principal", "lead", "manager", "director",
+  "distinguished", "head", "vp", "architect",
+]
+max_age_days = 2
+long_window_title_terms = [
+  "new grad", "new graduate", "early career", "entry-level", "entry level",
+  "university grad", "graduate engineer",
+]
+long_window_max_age_days = 14
+employment_types = ["Full-time"]
+exclude_description_terms = ["contract", "temporary", "temp to perm", "contract to full"]
+max_min_years = 6
+
+[priority]
+"New Grad" = 1
+"Internship" = 2
+"Junior" = 2
+"Entry Level" = 2
+"Associate" = 3
+"Unknown" = 3
+"Senior" = 6
+
+[relevance]
+terms = [
+  "etl", "elt", "dbt", "spark", "airflow", "kafka", "data pipeline",
+  "warehouse", "lakehouse", "snowflake", "databricks", "redshift", "bigquery",
+  "streaming", "data modeling", "sql", "orchestration",
+]
+core_skills = ["Data pipelines", "SQL", "dbt", "Snowflake", "Kafka/streaming"]
+
+[skills]
+"Python" = '\bpython\b'
+"SQL" = '\bsql\b|postgres|mysql|database'
+"Data pipelines" = 'data pipeline|etl\b|elt\b|airflow|spark|databricks|warehouse'
+"dbt" = '\bdbt\b'
+"Snowflake" = 'snowflake'
+"Redshift" = 'redshift'
+"BigQuery" = 'bigquery'
+"Kafka/streaming" = '\bkafka\b|streaming|kinesis|eventbridge'
+"Spark" = '\bspark\b|pyspark'
+"Airflow" = 'airflow|dagster|prefect'
+"Cloud, any provider" = '\baws\b|\bazure\b|\bgcp\b|google cloud|cloud-native'
+"Docker/containers" = '\bdocker\b|container'
+"Kubernetes" = '\bkubernetes\b|\bk8s\b'
+"Terraform/IaC" = '\bterraform\b|infrastructure as code|\biac\b'
+"Data modeling" = 'data model|star schema|dimensional|normaliz'
+"Observability/reliability" = 'observability|monitoring|data quality|great expectations'
+
+[areas]
+default = "General Data"
+
+[[areas.map]]
+label = "ETL / Pipelines"
+pattern = 'etl\b|elt\b|pipeline|ingest|airflow|dagster|prefect'
+
+[[areas.map]]
+label = "Warehousing"
+pattern = 'warehouse|snowflake|redshift|bigquery|lakehouse|databricks|dbt'
+
+[[areas.map]]
+label = "Streaming"
+pattern = '\bkafka\b|streaming|kinesis|flink|real-?time'
+
+[[areas.map]]
+label = "Data Platform"
+pattern = 'data platform|infrastructure|orchestrat|governance|catalog'
