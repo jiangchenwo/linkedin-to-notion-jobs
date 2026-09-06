@@ -164,3 +164,91 @@ def test_fetch_partial_when_detail_blocked(data_dir, monkeypatch, capsys):
 
     run_id = summary["run_id"]
     assert (data_dir / "runs" / run_id / "cards.json").exists()
+
+
+def _card_dict(job_id, title, company, location):
+    return {
+        "job_id": job_id,
+        "title": title,
+        "company": company,
+        "location": location,
+        "date_posted": "2026-09-05",
+        "url": f"https://www.linkedin.com/jobs/view/{job_id}/",
+        "keyword": "AI engineer",
+    }
+
+
+def test_extract_end_to_end(data_dir, capsys):
+    details = data_dir / "details"
+    details.mkdir(parents=True, exist_ok=True)
+
+    def place(job_id, fixture):
+        p = details / f"{job_id}.html"
+        p.write_text(read_fixture(fixture))
+        return str(p)
+
+    groups = [
+        {
+            "sibling_key": "beta labs::machine learning engineer",
+            "posting_key": "linkedin:4000000001",
+            "cards": [
+                _card_dict("4000000001", "Machine Learning Engineer", "Beta Labs", "Austin, TX"),
+                _card_dict("4000000005", "Machine Learning Engineer", "Beta Labs", "Remote"),
+            ],
+            "detail_job_id": "4000000001",
+            "detail_path": place("4000000001", "detail_junior.html"),
+        },
+        {
+            "sibling_key": "beta labs::ml contractor",
+            "posting_key": "linkedin:4000000010",
+            "cards": [_card_dict("4000000010", "ML Engineer", "Beta Labs", "Remote")],
+            "detail_job_id": "4000000010",
+            "detail_path": place("4000000010", "detail_contract.html"),
+        },
+        {
+            "sibling_key": "beta labs::ai engineer",
+            "posting_key": "linkedin:4000000020",
+            "cards": [_card_dict("4000000020", "AI Engineer", "Beta Labs", "New York, NY")],
+            "detail_job_id": "4000000020",
+            "detail_path": None,
+        },
+    ]
+    run_id = "2026-09-05T000000"
+    run_dir = data_dir / "runs" / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "cards.json").write_text(json.dumps(groups))
+    (data_dir / "runs" / "latest").write_text(run_id)
+
+    rc = cli.main(["extract"])
+    assert rc == 0
+
+    summary = _last_json(capsys)
+    assert summary["jobs"] == 1
+    assert summary["rejected"] == 1
+    assert summary["not_fetched"] == 1
+    assert summary["rejected_by_rule"].get("employment_type") == 1
+    assert summary["unresolved_path"].endswith("unresolved.json")
+
+    jobs = json.loads((run_dir / "jobs.json").read_text())
+    assert len(jobs) == 1
+    assert jobs[0]["posting_key"] == "linkedin:4000000001"
+    assert jobs[0]["job_ids"] == ["4000000001", "4000000005"]
+
+    rejections = json.loads((run_dir / "rejections.json").read_text())
+    assert rejections[0]["rule"] == "employment_type"
+    assert set(rejections[0]) >= {"posting_key", "job_id", "title", "company", "rule"}
+
+    assert json.loads((run_dir / "unresolved.json").read_text()) == []
+
+    conn = cache.connect(str(data_dir / "jobs.sqlite3"))
+    rows = list(conn.execute("SELECT stage, rule FROM rejections WHERE stage = 'detail'"))
+    conn.close()
+    assert any(r["rule"] == "employment_type" for r in rows)
+
+
+def test_extract_missing_cards_exits_2(data_dir, capsys):
+    (data_dir / "runs").mkdir(parents=True, exist_ok=True)
+    (data_dir / "runs" / "latest").write_text("nope")
+    rc = cli.main(["extract"])
+    assert rc == 2
+    assert "error" in _last_json(capsys)
