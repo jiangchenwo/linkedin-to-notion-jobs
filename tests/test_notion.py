@@ -161,6 +161,7 @@ def test_build_create_properties_wraps_every_field():
     assert p["Company"]["rich_text"][0]["text"]["content"] == "Beta Labs"
     assert p["Location"]["rich_text"][0]["text"]["content"] == "Austin, TX; Remote"
     assert p["Work Mode"]["select"]["name"] == "Remote"
+    assert p["Source Type"]["rich_text"][0]["text"]["content"] == "direct_company"
     assert p["Priority Score"]["number"] == 2
     assert p["Applied"]["checkbox"] is False
     assert p["Job URL"]["url"] == "https://www.linkedin.com/jobs/view/4000000001/"
