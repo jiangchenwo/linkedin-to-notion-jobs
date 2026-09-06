@@ -44,8 +44,7 @@ Requires [uv](https://docs.astral.sh/uv/) and Python 3.12.
 
 1. `uv sync`
 2. Duplicate the Notion database template into your own workspace:
-   **[Duplicate this Notion database template](REPLACE_WITH_PUBLISHED_TEMPLATE_LINK)**
-   (The repo owner publishes it via Share → Publish → "Duplicate as template".)
+   **[Duplicate this Notion database template](https://app.notion.com/p/3d3bf3e89e9e80fb8bf2f7da2afda52e?v=04cbf3e89e9e83edb2a388bc7975a5c3&source=copy_link)**
 3. Create a Notion internal integration with Read, Update, and Insert content
    permissions and connect it to your duplicated database.
 4. Store the token in the macOS Keychain:
@@ -146,7 +145,7 @@ heuristics; listed companies get `"Startup (listed)"` or `"Reliable (listed)"`.
 
 ## 4. Notion setup
 
-**[Duplicate this Notion database template](REPLACE_WITH_PUBLISHED_TEMPLATE_LINK)**
+**[Duplicate this Notion database template](https://app.notion.com/p/3d3bf3e89e9e80fb8bf2f7da2afda52e?v=04cbf3e89e9e83edb2a388bc7975a5c3&source=copy_link)**
 
 The repo owner publishes the template via Share → Publish → "Duplicate as
 template" and replaces the placeholder above with the published URL.
